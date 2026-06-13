@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Particle Playground</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    overflow: hidden;
+    background: #0a0a0f;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #fff;
+    user-select: none;
+  }
+  canvas { display: block; }
+
+  #hud {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 10;
+    pointer-events: none;
+    line-height: 1.5;
+  }
+  #hud .fps { font-size: 14px; opacity: 0.6; font-variant-numeric: tabular-nums; }
+  #hud .mode { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-top: 2px; }
+
+  #controls {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    gap: 8px;
+    background: rgba(255,255,255,0.06);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 10px 16px;
+    align-items: center;
+  }
+  #controls button {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.55);
+    padding: 8px 18px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    letter-spacing: 0.2px;
+  }
+  #controls button:hover {
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+  }
+  #controls button.active {
+    background: rgba(120, 180, 255, 0.18);
+    border-color: rgba(120, 180, 255, 0.3);
+    color: #8ab4ff;
+    box-shadow: 0 0 20px rgba(120, 180, 255, 0.08);
+  }
+  #controls .sep {
+    width: 1px;
+    height: 24px;
+    background: rgba(255,255,255,0.06);
+    margin: 0 4px;
+  }
+  #controls .key-hint {
+    font-size: 10px;
+    opacity: 0.35;
+    margin-left: 4px;
+    font-weight: 400;
+  }
+  #controls .pause-btn {
+    background: rgba(255,200,100,0.08);
+    border-color: rgba(255,200,100,0.12);
+    color: rgba(255,200,100,0.6);
+    padding: 8px 16px;
+  }
+  #controls .pause-btn:hover {
+    background: rgba(255,200,100,0.15);
+    color: #ffc864;
+  }
+  #controls .pause-btn.paused {
+    background: rgba(100,255,150,0.08);
+    border-color: rgba(100,255,150,0.12);
+    color: rgba(100,255,150,0.6);
+  }
+
+  /* ── Play Music button (golden/amber) ── */
+  #btnMusic {
+    background: rgba(255, 180, 50, 0.1);
+    border-color: rgba(255, 180, 50, 0.2);
+    color: rgba(255, 180, 50, 0.7);
+    padding: 8px 16px;
+  }
+  #btnMusic:hover {
+    background: rgba(255, 180, 50, 0.2);
+    color: #ffb832;
+    box-shadow: 0 0 20px rgba(255, 180, 50, 0.1);
+  }
+  #btnMusic.playing {
+    background: rgba(100, 255, 150, 0.1);
+    border-color: rgba(100, 255, 150, 0.2);
+    color: rgba(100, 255, 150, 0.7);
+  }
+
+  /* ── Controls ── */
+
+  @media (max-width: 640px) {
+    #hud .mode { font-size: 20px; }
+    #controls { padding: 8px 12px; gap: 4px; flex-wrap: wrap; }
+    #controls button { padding: 6px 12px; font-size: 11px; }
+  }
+
+  /* ── Settings panel (left sidebar) ── */
+  #settingsPanel {
+    position: fixed; left: 14px; top: 50%; transform: translateY(-50%);
+    z-index: 10; width: 130px;
+    background: rgba(10,10,15,0.75); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.05); border-radius: 10px;
+    padding: 10px 12px;
+  }
+  #settingsPanel .sp-title {
+    font-size: 8px; text-transform: uppercase; letter-spacing: 1px;
+    opacity: 0.25; margin-bottom: 6px;
+  }
+  #settingsPanel .sp-row {
+    display: flex; justify-content: space-between; font-size: 9px;
+    opacity: 0.35; margin-bottom: 1px; margin-top: 5px;
+  }
+  #settingsPanel input[type="range"] {
+    -webkit-appearance: none; width: 100%; height: 2px;
+    background: rgba(255,255,255,0.08); border-radius: 1px; outline: none;
+  }
+  #settingsPanel input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 9px; height: 9px;
+    background: #7c5cfc; border-radius: 50%; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="fps" id="fpsDisplay">60 FPS</div>
+  <div class="mode" id="modeDisplay">Vortex</div>
+</div>
+
+<div id="controls">
+  <button class="active" data-mode="vortex" id="btnVortex">Vortex<span class="key-hint">1</span></button>
+  <button data-mode="gravity" id="btnGravity">Gravity<span class="key-hint">2</span></button>
+  <button data-mode="explosion" id="btnExplosion">Explosion<span class="key-hint">3</span></button>
+  <button data-mode="aurora" id="btnAurora">Aurora<span class="key-hint">4</span></button>
+  <button data-mode="nebula" id="btnNebula">Nebula<span class="key-hint">5</span></button>
+  <div class="sep"></div>
+  <button class="pause-btn" id="btnPause">⏸ Pause<span class="key-hint">Space</span></button>
+  <div class="sep"></div>
+  <button id="btnMusic">🎵 Play Music</button>
+</div>
+
+<!-- Settings panel (left sidebar) -->
+<div id="settingsPanel">
+  <div class="sp-title">Settings</div>
+  <div class="sp-row"><span>Speed</span><span id="valSpeed">1.0×</span></div>
+  <input type="range" id="sSpeed" min="0.5" max="3.0" step="0.1" value="1.0">
+  <div class="sp-row"><span>Music React</span><span id="valSens">70%</span></div>
+  <input type="range" id="sSens" min="0" max="100" step="5" value="70">
+</div>
+</div>
+
+<!-- Music controls -->
+<div class="controls" id="controls"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ── Config ──
+let PARTICLE_BUDGET = 12000; // adjustable via settings
+const MODES = ['vortex', 'gravity', 'explosion', 'aurora', 'nebula'];
+const MODE_NAMES = { vortex: 'Vortex', gravity: 'Gravity', explosion: 'Explosion', aurora: 'Aurora', nebula: 'Nebula' };
+
+// Adjustable settings
+const SETTINGS = {
+  count: 12000,
+  speed: 1.0,
+  musicSensitivity: 0.7, // 0-1, how much music affects particles
+};
+
+let currentMode = 'vortex';
+let paused = false;
+let mouse = new THREE.Vector2(0, 0);
+let mouseDown = false;
+let clickBurstTime = 0;
+
+// ── Audio state ──
+let audioCtx = null;
+let audioSource = null;
+let audioBuffer = null;
+let analyser = null;
+let isMusicPlaying = false;
+let musicLoading = false;
+let musicStartTime = 0;
+const audioData = new Uint8Array(128); // fftSize/2
+
+// ── Scene setup ──
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a0f);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.z = 30;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.body.prepend(renderer.domElement);
+
+// ── Particle system ──
+let geometry = new THREE.BufferGeometry();
+const positions = new Float32Array(PARTICLE_BUDGET * 3);
+const colors = new Float32Array(PARTICLE_BUDGET * 3);
+const sizes = new Float32Array(PARTICLE_BUDGET);
+const velocities = [];
+const basePositions = [];
+
+for (let i = 0; i < PARTICLE_BUDGET; i++) {
+  const i3 = i * 3;
+  // Spread across a sphere
+  const radius = 8 + Math.random() * 7;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
+  positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+  positions[i3 + 2] = radius * Math.cos(phi);
+
+  basePositions.push(positions[i3], positions[i3 + 1], positions[i3 + 2]);
+
+  // Colors: varied hues
+  const hue = Math.random();
+  const sat = 0.7 + Math.random() * 0.3;
+  const lum = 0.5 + Math.random() * 0.4;
+  const c = new THREE.Color().setHSL(hue, sat, lum);
+  colors[i3] = c.r;
+  colors[i3 + 1] = c.g;
+  colors[i3 + 2] = c.b;
+
+  sizes[i] = 0.08 + Math.random() * 0.15;
+  velocities.push({ x: 0, y: 0, z: 0 });
+}
+
+geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+const vertexShader = `
+  attribute float size;
+  attribute vec3 color;
+  varying vec3 vColor;
+  void main() {
+    vColor = color;
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = size * (280.0 / -mvPosition.z);
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const fragmentShader = `
+  varying vec3 vColor;
+  void main() {
+    vec2 c = gl_PointCoord - vec2(0.5);
+    float d = length(c);
+    if (d > 0.5) discard;
+    float alpha = 1.0 - smoothstep(0.0, 0.5, d);
+    alpha *= 0.85;
+    gl_FragColor = vec4(vColor, alpha);
+  }
+`;
+
+const material = new THREE.ShaderMaterial({
+  vertexShader,
+  fragmentShader,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+});
+
+const particles = new THREE.Points(geometry, material);
+scene.add(particles);
+
+// ── Position refs (same buffer) ──
+const posAttr = geometry.attributes.position;
+const colAttr = geometry.attributes.color;
+const sizeAttr = geometry.attributes.size;
+
+// ── Mode state ──
+let modeTime = 0;
+
+// ── Mode update functions ──
+function updateVortex(dt) {
+  const pos = posAttr.array;
+  const mx = mouse.x * 20;
+  const my = mouse.y * 13;
+  const mz = 0;
+  // Music reactivity: bass pulse on speed
+  const bassBoost = (isMusicPlaying ? 1.0 + (audioData[0] / 255) * 1.5 : 1.0) * SETTINGS.speed;
+  const speedMul = dt * bassBoost;
+  for (let i = 0; i < PARTICLE_BUDGET; i++) {
+    const i3 = i * 3;
+    let dx = pos[i3] - mx;
+    let dy = pos[i3 + 1] - my;
+    let dz = pos[i3 + 2] - mz;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.01;
+    const strength = 1.8 / (1 + dist * 0.08);
+    const angle = speedMul * strength * 1.5;
+    const tx = dx * Math.cos(angle) - dy * Math.sin(angle);
+    const ty = dx * Math.sin(angle) + dy * Math.cos(angle);
+    pos[i3] = mx + tx;
+    pos[i3 + 1] = my + ty;
+    pos[i3 + 2] += Math.sin(modeTime * 0.5 + i * 0.01) * speedMul * 0.3;
+  }
+  posAttr.needsUpdate = true;
+}
+
+function updateGravity(dt) {
+  const pos = posAttr.array;
+  const mx = mouse.x * 20;
+  const my = mouse.y * 13;
+  const mz = 0;
+  const bassBoost = (isMusicPlaying ? 1.0 + (audioData[0] / 255) * 1.5 : 1.0) * SETTINGS.speed;
+  const speedMul = dt * bassBoost;
+  for (let i = 0; i < PARTICLE_BUDGET; i++) {
+    const i3 = i * 3;
+    let dx = mx - pos[i3];
+    let dy = my - pos[i3 + 1];
+    let dz = mz - pos[i3 + 2];
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.1;
+    const force = (25 / (dist * dist + 0.5)) * bassBoost;
+    velocities[i].x += dx / dist * force * dt;
+    velocities[i].y += dy / dist * force * dt;
+    velocities[i].z += dz / dist * force * dt;
+    velocities[i].x *= 0.96;
+    velocities[i].y *= 0.96;
+    velocities[i].z *= 0.96;
+    pos[i3] += velocities[i].x * speedMul * 8;
+    pos[i3 + 1] += velocities[i].y * speedMul * 8;
+    pos[i3 + 2] += velocities[i].z * speedMul * 8;
+  }
+  posAttr.needsUpdate = true;
+}
+
+function updateExplosion(dt) {
+  const pos = posAttr.array;
+  const mx = mouse.x * 20;
+  const my = mouse.y * 13;
+  const mz = 0;
+
+  if (clickBurstTime > 0) {
+    clickBurstTime -= dt;
+  }
+
+  const bassBoost = (isMusicPlaying ? 1.0 + (audioData[0] / 255) * 2.0 : 1.0) * SETTINGS.speed;
+
+  for (let i = 0; i < PARTICLE_BUDGET; i++) {
+    const i3 = i * 3;
+    if (clickBurstTime > 0) {
+      let dx = pos[i3] - mx;
+      let dy = pos[i3 + 1] - my;
+      let dz = pos[i3 + 2] - mz;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.01;
+      const force = (15 / (dist + 0.5)) * bassBoost;
+      velocities[i].x += (dx / dist) * force * dt * 3;
+      velocities[i].y += (dy / dist) * force * dt * 3;
+      velocities[i].z += (dz / dist) * force * dt * 3;
+    }
+
+    const bx = basePositions[i3];
+    const by = basePositions[i3 + 1];
+    const bz = basePositions[i3 + 2];
+    const dx = bx - pos[i3];
+    const dy = by - pos[i3 + 1];
+    const dz = bz - pos[i3 + 2];
+    velocities[i].x += dx * dt * 0.5;
+    velocities[i].y += dy * dt * 0.5;
+    velocities[i].z += dz * dt * 0.5;
+
+    velocities[i].x *= 0.94;
+    velocities[i].y *= 0.94;
+    velocities[i].z *= 0.94;
+    pos[i3] += velocities[i].x * dt * 8 * bassBoost;
+    pos[i3 + 1] += velocities[i].y * dt * 8 * bassBoost;
+    pos[i3 + 2] += velocities[i].z * dt * 8 * bassBoost;
+  }
+  posAttr.needsUpdate = true;
+}
+
+function updateAurora(dt) {
+  const pos = posAttr.array;
+  const col = colAttr.array;
+  const t = modeTime;
+  // Music reactivity: mid frequencies shift colors, bass pulses movement
+  const bass = isMusicPlaying ? audioData[0] / 255 : 0;
+  const mid = isMusicPlaying ? (audioData[4] + audioData[8] + audioData[12]) / (255 * 3) : 0;
+  const bassMul = (1.0 + bass * 1.2) * SETTINGS.speed;
+
+  for (let i = 0; i < PARTICLE_BUDGET; i++) {
+    const i3 = i * 3;
+    const phase = i * 0.008;
+    pos[i3] = basePositions[i3] + Math.sin(t * 0.4 * bassMul + phase) * 3 * bassMul + Math.sin(t * 0.7 * bassMul + phase * 1.7) * 1.5 * bassMul;
+    pos[i3 + 1] = basePositions[i3 + 1] + Math.sin(t * 0.3 * bassMul + phase * 1.3 + 1.2) * 2.5 * bassMul + Math.cos(t * 0.5 * bassMul + phase * 0.9) * 1.5 * bassMul;
+    pos[i3 + 2] = basePositions[i3 + 2] + Math.sin(t * 0.2 * bassMul + phase * 0.7 + 2.3) * 2 * bassMul;
+
+    // Mid-reactive color shift toward vibrant hues
+    const hueShift = mid * 0.3;
+    const hue = 0.5 + 0.25 * Math.sin(t * 0.15 + phase * 2 + hueShift);
+    const sat = Math.min(1, 0.8 + 0.2 * Math.sin(t * 0.1 + phase) + mid * 0.2);
+    const lum = 0.4 + 0.4 * Math.sin(t * 0.2 + phase * 1.5) + bass * 0.2;
+    const c = new THREE.Color().setHSL(hue % 1, sat, Math.min(1, lum));
+    col[i3] = c.r;
+    col[i3 + 1] = c.g;
+    col[i3 + 2] = c.b;
+  }
+  posAttr.needsUpdate = true;
+  colAttr.needsUpdate = true;
+}
+
+function updateNebula(dt) {
+  const pos = posAttr.array;
+  const col = colAttr.array;
+  const t = modeTime;
+  const mx = mouse.x * 20;
+  const my = mouse.y * 13;
+  const bass = isMusicPlaying ? audioData[0] / 255 : 0;
+  const mid = isMusicPlaying ? (audioData[4] + audioData[8] + audioData[12]) / (255 * 3) : 0;
+  const bassMul = (1.0 + bass * 1.5) * SETTINGS.speed;
+
+  for (let i = 0; i < PARTICLE_BUDGET; i++) {
+    const i3 = i * 3;
+    const phase = i * 0.005;
+    const orbitSpeed = (0.15 + 0.3 * Math.sin(phase * 3)) * bassMul;
+    const orbitPhase = phase * 20 + t * orbitSpeed;
+    const radius = (2 + 10 * Math.sin(phase * 5 + 1.0)) * (1 + bass * 0.5);
+    const height = 4 * Math.cos(phase * 4 + t * 0.1) * bassMul;
+
+    const cx = mx * 0.3;
+    const cy = my * 0.3;
+    const cz = 0;
+
+    pos[i3] = cx + radius * Math.cos(orbitPhase) + Math.sin(t * 0.2 + phase * 7) * 1.5 * bassMul;
+    pos[i3 + 1] = cy + height + radius * 0.4 * Math.sin(orbitPhase * 0.7) + Math.cos(t * 0.15 + phase * 5) * 1.5 * bassMul;
+    pos[i3 + 2] = cz + radius * 0.5 * Math.sin(orbitPhase + 1.5) + Math.sin(t * 0.1 + phase * 6) * 1.5 * bassMul;
+
+    // Mid-reactive vibrant nebula colors
+    const hueShift = mid * 0.4;
+    const hue = (0.75 + 0.35 * Math.sin(phase * 8 + t * 0.05 + hueShift)) % 1;
+    const sat = Math.min(1, 0.7 + 0.3 * Math.sin(phase * 6 + t * 0.07) + mid * 0.3);
+    const lum = Math.min(1, 0.3 + 0.5 * (0.5 + 0.5 * Math.sin(phase * 10 + t * 0.1)) + bass * 0.3);
+    const c = new THREE.Color().setHSL(hue < 0 ? hue + 1 : hue > 1 ? hue - 1 : hue, sat, lum);
+    col[i3] = c.r;
+    col[i3 + 1] = c.g;
+    col[i3 + 2] = c.b;
+  }
+  posAttr.needsUpdate = true;
+  colAttr.needsUpdate = true;
+}
+
+// ── Reset positions to base ──
+function resetPositions() {
+  const pos = posAttr.array;
+  for (let i = 0; i < PARTICLE_BUDGET; i++) {
+    const i3 = i * 3;
+    pos[i3] = basePositions[i3];
+    pos[i3 + 1] = basePositions[i3 + 1];
+    pos[i3 + 2] = basePositions[i3 + 2];
+    velocities[i].x = 0;
+    velocities[i].y = 0;
+    velocities[i].z = 0;
+  }
+  // Reset colors to original
+  const col = colAttr.array;
+  for (let i = 0; i < PARTICLE_BUDGET; i++) {
+    const i3 = i * 3;
+    const hue = Math.random();
+    const sat = 0.7 + Math.random() * 0.3;
+    const lum = 0.5 + Math.random() * 0.4;
+    const c = new THREE.Color().setHSL(hue, sat, lum);
+    col[i3] = c.r;
+    col[i3 + 1] = c.g;
+    col[i3 + 2] = c.b;
+  }
+  posAttr.needsUpdate = true;
+  colAttr.needsUpdate = true;
+  clickBurstTime = 0;
+}
+
+// ── Mode switching ──
+function setMode(mode) {
+  if (!MODES.includes(mode)) return;
+  currentMode = mode;
+  modeTime = 0;
+  resetPositions();
+  document.getElementById('modeDisplay').textContent = MODE_NAMES[mode];
+  document.querySelectorAll('#controls button[data-mode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+}
+
+// ── Apply music reactivity to size and color in animation loop ──
+function applyMusicReactivity() {
+  if (!isMusicPlaying || !analyser) return;
+  const sens = SETTINGS.musicSensitivity;
+  if (sens <= 0) return;
+
+  // Get frequency data
+  analyser.getByteFrequencyData(audioData);
+
+  // Bass: indices 0-3 control size pulse (capped, not turning white)
+  const bassAvg = (audioData[0] + audioData[1] + audioData[2] + audioData[3]) / (255 * 4);
+  const bassScaled = bassAvg * sens;
+  const sizeMul = 0.6 + bassScaled * 1.4;
+
+  // Mid: color vibrancy
+  let midSum = 0;
+  for (let i = 4; i < 24; i++) midSum += audioData[i];
+  const midAvg = (midSum / (20 * 255)) * sens;
+
+  const sizeArr = sizeAttr.array;
+  for (let i = 0; i < PARTICLE_BUDGET; i++) {
+    const baseSize = 0.08 + (i % 100) * 0.0015;
+    sizeArr[i] = baseSize * sizeMul;
+  }
+  sizeAttr.needsUpdate = true;
+
+  // Pulse colors on non-color modes — keep vibrant, don't push to white
+  if (currentMode === 'vortex' || currentMode === 'gravity' || currentMode === 'explosion') {
+    const col = colAttr.array;
+    const hueShift = midAvg * 0.3;
+    for (let i = 0; i < PARTICLE_BUDGET; i++) {
+      const i3 = i * 3;
+      const tempColor = new THREE.Color(col[i3], col[i3+1], col[i3+2]);
+      const hsl = {};
+      tempColor.getHSL(hsl);
+      // Shift hue slightly, boost saturation, keep luminance in safe range
+      const newHue = (hsl.h + hueShift * 0.03) % 1;
+      const newSat = Math.min(1, hsl.s + midAvg * 0.2);
+      const newLum = Math.min(0.7, Math.max(0.3, hsl.l + bassScaled * 0.1));
+      const c = new THREE.Color().setHSL(newHue, newSat, newLum);
+      col[i3] = c.r;
+      col[i3 + 1] = c.g;
+      col[i3 + 2] = c.b;
+    }
+    colAttr.needsUpdate = true;
+  }
+}
+
+// ── Animation loop ──
+let lastTime = performance.now();
+let frameCount = 0;
+let fpsTime = 0;
+
+function animate(time) {
+  requestAnimationFrame(animate);
+
+  const dtRaw = (time - lastTime) / 1000;
+  lastTime = time;
+  const dt = Math.min(dtRaw, 0.05);
+
+  // FPS
+  frameCount++;
+  if (time - fpsTime >= 1000) {
+    document.getElementById('fpsDisplay').textContent = `${frameCount} FPS`;
+    frameCount = 0;
+    fpsTime = time;
+  }
+
+  if (!paused) {
+    // Read audio data and apply music reactivity before updating mode
+    if (isMusicPlaying && analyser) {
+      applyMusicReactivity();
+    }
+
+    modeTime += dt;
+    switch (currentMode) {
+      case 'vortex': updateVortex(dt); break;
+      case 'gravity': updateGravity(dt); break;
+      case 'explosion': updateExplosion(dt); break;
+      case 'aurora': updateAurora(dt); break;
+      case 'nebula': updateNebula(dt); break;
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+
+animate(performance.now());
+
+// ── Mouse ──
+function onMouseMove(e) {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+}
+
+function onMouseDown(e) {
+  mouseDown = true;
+  if (currentMode === 'explosion') {
+    clickBurstTime = 1.5;
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  }
+}
+
+function onMouseUp() {
+  mouseDown = false;
+}
+
+window.addEventListener('mousemove', onMouseMove);
+window.addEventListener('mousedown', onMouseDown);
+window.addEventListener('mouseup', onMouseUp);
+
+// Touch support
+window.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  mouse.x = (t.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(t.clientY / window.innerHeight) * 2 + 1;
+}, { passive: false });
+window.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  mouse.x = (t.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(t.clientY / window.innerHeight) * 2 + 1;
+  mouseDown = true;
+  if (currentMode === 'explosion') clickBurstTime = 1.5;
+}, { passive: true });
+window.addEventListener('touchend', () => { mouseDown = false; }, { passive: true });
+
+// ── Resize ──
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ── Keyboard ──
+window.addEventListener('keydown', e => {
+  if (e.key >= '1' && e.key <= '5') {
+    const idx = parseInt(e.key) - 1;
+    setMode(MODES[idx]);
+  }
+  if (e.key === ' ' || e.key === 'Spacebar') {
+    e.preventDefault();
+    paused = !paused;
+    document.getElementById('btnPause').textContent = paused ? '▶ Play' : '⏸ Pause';
+    document.getElementById('btnPause').classList.toggle('paused', paused);
+  }
+});
+
+// ── Button clicks ──
+document.querySelectorAll('#controls button[data-mode]').forEach(btn => {
+  btn.addEventListener('click', () => setMode(btn.dataset.mode));
+});
+document.getElementById('btnPause').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('btnPause').textContent = paused ? '▶ Play' : '⏸ Pause';
+  document.getElementById('btnPause').classList.toggle('paused', paused);
+});
+
+// ==================================================================
+// MUSIC SYSTEM — synthesized audio with AnalyserNode reactivity
+// ==================================================================
+async function playMusic() {
+  const btn = document.getElementById('btnMusic');
+
+  if (isMusicPlaying || musicLoading) {
+    stopMusic();
+    return;
+  }
+
+  if (musicLoading) return;
+  musicLoading = true;
+  btn.textContent = '🎵 Starting...';
+
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Create an oscillator-based synth for music-reactive particles
+    const sampleRate = audioCtx.sampleRate;
+    const duration = 30; // 30 seconds of generated music
+    const length = sampleRate * duration;
+    const buffer = audioCtx.createBuffer(1, length, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    // Generate a simple progressive electronic beat pattern
+    for (let i = 0; i < length; i++) {
+      const t = i / sampleRate;
+      // Bass drum: low frequency pulse every beat
+      const beat = Math.sin(2 * Math.PI * 80 * t) * Math.exp(-t * 6) * Math.max(0, Math.sin(Math.PI * t * 2) ** 20);
+      // Hi-hat: high frequency noise
+      const hihat = (Math.random() * 2 - 1) * Math.max(0, Math.sin(Math.PI * t * 4) ** 40) * 0.3;
+      // Melody: evolving sine wave arpeggio
+      const note = Math.sin(2 * Math.PI * 220 * t + Math.sin(2 * Math.PI * 0.5 * t) * 2);
+      const melody = note * 0.15 * (Math.sin(2 * Math.PI * 0.25 * t) * 0.5 + 0.5);
+      // Bass line
+      const bass = Math.sin(2 * Math.PI * 110 * t) * 0.1 * Math.max(0, Math.sin(Math.PI * t * 1) ** 10);
+
+      data[i] = beat * 0.6 + hihat + melody + bass;
+    }
+
+    audioBuffer = buffer;
+    audioSource = audioCtx.createBufferSource();
+    audioSource.buffer = audioBuffer;
+
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+
+    audioSource.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    window.__analyser = analyser;
+    window.__audioData = audioData;
+
+    audioSource.onended = () => {
+      if (isMusicPlaying) {
+        isMusicPlaying = false;
+        musicLoading = false;
+        btn.textContent = '🎵 Play Music';
+        btn.classList.remove('playing');
+      }
+    };
+
+    audioSource.start(0);
+    isMusicPlaying = true;
+    musicLoading = false;
+    musicStartTime = audioCtx.currentTime;
+    btn.textContent = '🎵 Stop';
+    btn.classList.add('playing');
+
+    console.log('🎵 Now playing: synthesized electronic beat');
+  } catch (err) {
+    console.error('❌ Music error:', err);
+    btn.textContent = '🎵 Error';
+    btn.style.color = 'rgba(255,80,80,0.7)';
+    musicLoading = false;
+    setTimeout(() => {
+      btn.textContent = '🎵 Play Music';
+      btn.style.color = '';
+    }, 2000);
+  }
+}
+
+function stopMusic() {
+  if (audioSource && isMusicPlaying) {
+    try { audioSource.stop(); } catch(e) {}
+  }
+  if (audioCtx && audioCtx.state !== 'closed') {
+    try { audioCtx.close(); } catch(e) {}
+  }
+  isMusicPlaying = false;
+  musicLoading = false;
+  audioSource = null;
+  audioCtx = null;
+  const btn = document.getElementById('btnMusic');
+  if (btn) {
+    btn.textContent = '🎵 Play Music';
+    btn.classList.remove('playing');
+  }
+}
+
+document.getElementById('btnMusic').addEventListener('click', playMusic);
+
+// ── Settings sliders ──
+document.getElementById('sSpeed').addEventListener('input', function() {
+  const v = parseFloat(this.value);
+  SETTINGS.speed = v;
+  document.getElementById('valSpeed').textContent = v.toFixed(1) + '×';
+});
+
+document.getElementById('sSens').addEventListener('input', function() {
+  const v = parseInt(this.value) / 100;
+  SETTINGS.musicSensitivity = v;
+  document.getElementById('valSens').textContent = parseInt(this.value) + '%';
+});
+
+// ── Init ──
+console.log('🚀 Particle Playground loaded — move your mouse and enjoy!');
+</script>
+</body>
+</html>

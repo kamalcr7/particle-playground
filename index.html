@@ -161,6 +161,8 @@
   <button class="pause-btn" id="btnPause">⏸ Pause<span class="key-hint">Space</span></button>
   <div class="sep"></div>
   <button id="btnMusic">🎵 Play Music</button>
+  <div class="sep"></div>
+  <button id="btnReset" style="background:rgba(255,100,100,0.08);border-color:rgba(255,100,100,0.12);color:rgba(255,100,100,0.6);">↻ Reset</button>
 </div>
 
 <!-- Settings panel (left sidebar) -->
@@ -168,6 +170,10 @@
   <div class="sp-title">Settings</div>
   <div class="sp-row"><span>Speed</span><span id="valSpeed">1.0×</span></div>
   <input type="range" id="sSpeed" min="0.5" max="3.0" step="0.1" value="1.0">
+  <div class="sp-row"><span>Size</span><span id="valSize">1.0×</span></div>
+  <input type="range" id="sSize" min="0.2" max="3.0" step="0.1" value="1.0">
+  <div class="sp-row"><span>Brightness</span><span id="valBright">100%</span></div>
+  <input type="range" id="sBright" min="0" max="100" step="5" value="100">
   <div class="sp-row"><span>Music React</span><span id="valSens">70%</span></div>
   <input type="range" id="sSens" min="0" max="100" step="5" value="70">
 </div>
@@ -196,7 +202,9 @@ const MODE_NAMES = { vortex: 'Vortex', gravity: 'Gravity', explosion: 'Explosion
 const SETTINGS = {
   count: 12000,
   speed: 1.0,
-  musicSensitivity: 0.7, // 0-1, how much music affects particles
+  size: 1.0,
+  vibrancy: 1.0,
+  musicSensitivity: 0.7,
 };
 
 let currentMode = 'vortex';
@@ -214,6 +222,7 @@ let isMusicPlaying = false;
 let musicLoading = false;
 let musicStartTime = 0;
 const audioData = new Uint8Array(128); // fftSize/2
+let smoothedAudio = new Float32Array(128); // smoothed frequency values
 
 // ── Scene setup ──
 const scene = new THREE.Scene();
@@ -249,14 +258,14 @@ for (let i = 0; i < PARTICLE_BUDGET; i++) {
 
   // Colors: varied hues
   const hue = Math.random();
-  const sat = 0.7 + Math.random() * 0.3;
-  const lum = 0.5 + Math.random() * 0.4;
+  const sat = 0.8 + Math.random() * 0.2;
+  const lum = 0.6 + Math.random() * 0.4;
   const c = new THREE.Color().setHSL(hue, sat, lum);
   colors[i3] = c.r;
   colors[i3 + 1] = c.g;
   colors[i3 + 2] = c.b;
 
-  sizes[i] = 0.08 + Math.random() * 0.15;
+  sizes[i] = 0.15 + Math.random() * 0.25;
   velocities.push({ x: 0, y: 0, z: 0 });
 }
 
@@ -271,20 +280,20 @@ const vertexShader = `
   void main() {
     vColor = color;
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = size * (280.0 / -mvPosition.z);
+    gl_PointSize = size * (450.0 / -mvPosition.z);
     gl_Position = projectionMatrix * mvPosition;
   }
 `;
 
 const fragmentShader = `
+  uniform float uIntensity;
   varying vec3 vColor;
   void main() {
     vec2 c = gl_PointCoord - vec2(0.5);
     float d = length(c);
     if (d > 0.5) discard;
     float alpha = 1.0 - smoothstep(0.0, 0.5, d);
-    alpha *= 0.85;
-    gl_FragColor = vec4(vColor, alpha);
+    gl_FragColor = vec4(vColor, alpha * uIntensity);
   }
 `;
 
@@ -293,7 +302,12 @@ const material = new THREE.ShaderMaterial({
   fragmentShader,
   transparent: true,
   depthWrite: false,
-  blending: THREE.AdditiveBlending,
+  blending: THREE.CustomBlending,
+  blendSrc: THREE.SrcAlphaFactor,
+  blendDst: THREE.OneFactor,
+  uniforms: {
+    uIntensity: { value: 1.0 }
+  },
 });
 
 const particles = new THREE.Points(geometry, material);
@@ -313,8 +327,7 @@ function updateVortex(dt) {
   const mx = mouse.x * 20;
   const my = mouse.y * 13;
   const mz = 0;
-  // Music reactivity: bass pulse on speed
-  const bassBoost = (isMusicPlaying ? 1.0 + (audioData[0] / 255) * 1.5 : 1.0) * SETTINGS.speed;
+  const bassBoost = (1.0 + smoothedAudio[0] * 1.5) * SETTINGS.speed;
   const speedMul = dt * bassBoost;
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
@@ -338,7 +351,7 @@ function updateGravity(dt) {
   const mx = mouse.x * 20;
   const my = mouse.y * 13;
   const mz = 0;
-  const bassBoost = (isMusicPlaying ? 1.0 + (audioData[0] / 255) * 1.5 : 1.0) * SETTINGS.speed;
+  const bassBoost = (1.0 + smoothedAudio[0] * 1.5) * SETTINGS.speed;
   const speedMul = dt * bassBoost;
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
@@ -365,15 +378,30 @@ function updateExplosion(dt) {
   const mx = mouse.x * 20;
   const my = mouse.y * 13;
   const mz = 0;
+  const sens = SETTINGS.musicSensitivity;
 
   if (clickBurstTime > 0) {
     clickBurstTime -= dt;
   }
 
-  const bassBoost = (isMusicPlaying ? 1.0 + (audioData[0] / 255) * 2.0 : 1.0) * SETTINGS.speed;
+  const bass = smoothedAudio[0];
+  const bassBoost = (1.0 + bass * 2.0 * sens) * SETTINGS.speed;
 
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
+
+    // Music-triggered mini-burst: bass above threshold pushes particles
+    if (bass > 0.15 * (1.5 - sens * 0.5)) {
+      let dx = pos[i3] - mx;
+      let dy = pos[i3 + 1] - my;
+      let dz = pos[i3 + 2] - mz;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.01;
+      const force = (12 / (dist + 0.5)) * bass * sens;
+      velocities[i].x += (dx / dist) * force * dt * 4;
+      velocities[i].y += (dy / dist) * force * dt * 4;
+      velocities[i].z += (dz / dist) * force * dt * 4;
+    }
+
     if (clickBurstTime > 0) {
       let dx = pos[i3] - mx;
       let dy = pos[i3 + 1] - my;
@@ -409,23 +437,23 @@ function updateAurora(dt) {
   const pos = posAttr.array;
   const col = colAttr.array;
   const t = modeTime;
-  // Music reactivity: mid frequencies shift colors, bass pulses movement
-  const bass = isMusicPlaying ? audioData[0] / 255 : 0;
-  const mid = isMusicPlaying ? (audioData[4] + audioData[8] + audioData[12]) / (255 * 3) : 0;
-  const bassMul = (1.0 + bass * 1.2) * SETTINGS.speed;
+  const sens = SETTINGS.musicSensitivity;
+  const bass = smoothedAudio[0];
+  const mid = (smoothedAudio[4] + smoothedAudio[8] + smoothedAudio[12]) / 3;
+  const speedMul = (1.0 + bass * 0.6 * sens) * SETTINGS.speed;
+  const ampMul = 1.0 + bass * 0.4 * sens;
 
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
     const phase = i * 0.008;
-    pos[i3] = basePositions[i3] + Math.sin(t * 0.4 * bassMul + phase) * 3 * bassMul + Math.sin(t * 0.7 * bassMul + phase * 1.7) * 1.5 * bassMul;
-    pos[i3 + 1] = basePositions[i3 + 1] + Math.sin(t * 0.3 * bassMul + phase * 1.3 + 1.2) * 2.5 * bassMul + Math.cos(t * 0.5 * bassMul + phase * 0.9) * 1.5 * bassMul;
-    pos[i3 + 2] = basePositions[i3 + 2] + Math.sin(t * 0.2 * bassMul + phase * 0.7 + 2.3) * 2 * bassMul;
+    pos[i3] = basePositions[i3] + Math.sin(t * 0.4 * speedMul + phase) * 3 * ampMul + Math.sin(t * 0.7 * speedMul + phase * 1.7) * 1.5;
+    pos[i3 + 1] = basePositions[i3 + 1] + Math.sin(t * 0.3 * speedMul + phase * 1.3 + 1.2) * 2.5 * ampMul + Math.cos(t * 0.5 * speedMul + phase * 0.9) * 1.5;
+    pos[i3 + 2] = basePositions[i3 + 2] + Math.sin(t * 0.2 * speedMul + phase * 0.7 + 2.3) * 2 * ampMul;
 
-    // Mid-reactive color shift toward vibrant hues
-    const hueShift = mid * 0.3;
-    const hue = 0.5 + 0.25 * Math.sin(t * 0.15 + phase * 2 + hueShift);
-    const sat = Math.min(1, 0.8 + 0.2 * Math.sin(t * 0.1 + phase) + mid * 0.2);
-    const lum = 0.4 + 0.4 * Math.sin(t * 0.2 + phase * 1.5) + bass * 0.2;
+    const hueShift = mid * 0.2 * sens;
+    const hue = 0.5 + 0.3 * Math.sin(t * 0.15 + phase * 2 + hueShift);
+    const sat = Math.min(1, 0.7 + 0.3 * Math.sin(t * 0.1 + phase) + mid * 0.15 * sens);
+    const lum = 0.4 + 0.4 * Math.sin(t * 0.2 + phase * 1.5) + bass * 0.15 * sens;
     const c = new THREE.Color().setHSL(hue % 1, sat, Math.min(1, lum));
     col[i3] = c.r;
     col[i3 + 1] = c.g;
@@ -441,31 +469,32 @@ function updateNebula(dt) {
   const t = modeTime;
   const mx = mouse.x * 20;
   const my = mouse.y * 13;
-  const bass = isMusicPlaying ? audioData[0] / 255 : 0;
-  const mid = isMusicPlaying ? (audioData[4] + audioData[8] + audioData[12]) / (255 * 3) : 0;
-  const bassMul = (1.0 + bass * 1.5) * SETTINGS.speed;
+  const sens = SETTINGS.musicSensitivity;
+  const bass = smoothedAudio[0];
+  const mid = (smoothedAudio[4] + smoothedAudio[8] + smoothedAudio[12]) / 3;
+  const speedMul = (1.0 + bass * 0.8 * sens) * SETTINGS.speed;
+  const ampMul = 1.0 + bass * 0.4 * sens;
 
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
     const phase = i * 0.005;
-    const orbitSpeed = (0.15 + 0.3 * Math.sin(phase * 3)) * bassMul;
+    const orbitSpeed = (0.15 + 0.3 * Math.sin(phase * 3)) * speedMul;
     const orbitPhase = phase * 20 + t * orbitSpeed;
-    const radius = (2 + 10 * Math.sin(phase * 5 + 1.0)) * (1 + bass * 0.5);
-    const height = 4 * Math.cos(phase * 4 + t * 0.1) * bassMul;
+    const radius = (2 + 10 * Math.sin(phase * 5 + 1.0)) * ampMul;
+    const height = 4 * Math.cos(phase * 4 + t * 0.1) * speedMul;
 
     const cx = mx * 0.3;
     const cy = my * 0.3;
     const cz = 0;
 
-    pos[i3] = cx + radius * Math.cos(orbitPhase) + Math.sin(t * 0.2 + phase * 7) * 1.5 * bassMul;
-    pos[i3 + 1] = cy + height + radius * 0.4 * Math.sin(orbitPhase * 0.7) + Math.cos(t * 0.15 + phase * 5) * 1.5 * bassMul;
-    pos[i3 + 2] = cz + radius * 0.5 * Math.sin(orbitPhase + 1.5) + Math.sin(t * 0.1 + phase * 6) * 1.5 * bassMul;
+    pos[i3] = cx + radius * Math.cos(orbitPhase) + Math.sin(t * 0.2 + phase * 7) * 1.5 * ampMul;
+    pos[i3 + 1] = cy + height + radius * 0.4 * Math.sin(orbitPhase * 0.7) + Math.cos(t * 0.15 + phase * 5) * 1.5;
+    pos[i3 + 2] = cz + radius * 0.5 * Math.sin(orbitPhase + 1.5) + Math.sin(t * 0.1 + phase * 6) * 1.5;
 
-    // Mid-reactive vibrant nebula colors
-    const hueShift = mid * 0.4;
+    const hueShift = mid * 0.2 * sens;
     const hue = (0.75 + 0.35 * Math.sin(phase * 8 + t * 0.05 + hueShift)) % 1;
-    const sat = Math.min(1, 0.7 + 0.3 * Math.sin(phase * 6 + t * 0.07) + mid * 0.3);
-    const lum = Math.min(1, 0.3 + 0.5 * (0.5 + 0.5 * Math.sin(phase * 10 + t * 0.1)) + bass * 0.3);
+    const sat = Math.min(1, 0.7 + 0.3 * Math.sin(phase * 6 + t * 0.07) + mid * 0.2 * sens);
+    const lum = Math.min(1, 0.3 + 0.5 * (0.5 + 0.5 * Math.sin(phase * 10 + t * 0.1)) + bass * 0.2 * sens);
     const c = new THREE.Color().setHSL(hue < 0 ? hue + 1 : hue > 1 ? hue - 1 : hue, sat, lum);
     col[i3] = c.r;
     col[i3 + 1] = c.g;
@@ -492,8 +521,8 @@ function resetPositions() {
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
     const hue = Math.random();
-    const sat = 0.7 + Math.random() * 0.3;
-    const lum = 0.5 + Math.random() * 0.4;
+    const sat = 0.8 + Math.random() * 0.2;
+    const lum = 0.6 + Math.random() * 0.4;
     const c = new THREE.Color().setHSL(hue, sat, lum);
     col[i3] = c.r;
     col[i3 + 1] = c.g;
@@ -516,6 +545,20 @@ function setMode(mode) {
   });
 }
 
+// ── Apply size multiplier (with music reactivity if playing) ──
+function applySizeUpdate() {
+  if (isMusicPlaying && analyser) {
+    applyMusicReactivity();
+  } else {
+    const sizeArr = sizeAttr.array;
+    for (let i = 0; i < PARTICLE_BUDGET; i++) {
+      const baseSize = 0.16 + (i % 100) * 0.0025;
+      sizeArr[i] = baseSize * SETTINGS.size;
+    }
+    sizeAttr.needsUpdate = true;
+  }
+}
+
 // ── Apply music reactivity to size and color in animation loop ──
 function applyMusicReactivity() {
   if (!isMusicPlaying || !analyser) return;
@@ -528,40 +571,14 @@ function applyMusicReactivity() {
   // Bass: indices 0-3 control size pulse (capped, not turning white)
   const bassAvg = (audioData[0] + audioData[1] + audioData[2] + audioData[3]) / (255 * 4);
   const bassScaled = bassAvg * sens;
-  const sizeMul = 0.6 + bassScaled * 1.4;
-
-  // Mid: color vibrancy
-  let midSum = 0;
-  for (let i = 4; i < 24; i++) midSum += audioData[i];
-  const midAvg = (midSum / (20 * 255)) * sens;
+  const sizeMul = (0.6 + bassScaled * 1.4) * SETTINGS.size;
 
   const sizeArr = sizeAttr.array;
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
-    const baseSize = 0.08 + (i % 100) * 0.0015;
+    const baseSize = 0.16 + (i % 100) * 0.0025;
     sizeArr[i] = baseSize * sizeMul;
   }
   sizeAttr.needsUpdate = true;
-
-  // Pulse colors on non-color modes — keep vibrant, don't push to white
-  if (currentMode === 'vortex' || currentMode === 'gravity' || currentMode === 'explosion') {
-    const col = colAttr.array;
-    const hueShift = midAvg * 0.3;
-    for (let i = 0; i < PARTICLE_BUDGET; i++) {
-      const i3 = i * 3;
-      const tempColor = new THREE.Color(col[i3], col[i3+1], col[i3+2]);
-      const hsl = {};
-      tempColor.getHSL(hsl);
-      // Shift hue slightly, boost saturation, keep luminance in safe range
-      const newHue = (hsl.h + hueShift * 0.03) % 1;
-      const newSat = Math.min(1, hsl.s + midAvg * 0.2);
-      const newLum = Math.min(0.7, Math.max(0.3, hsl.l + bassScaled * 0.1));
-      const c = new THREE.Color().setHSL(newHue, newSat, newLum);
-      col[i3] = c.r;
-      col[i3 + 1] = c.g;
-      col[i3 + 2] = c.b;
-    }
-    colAttr.needsUpdate = true;
-  }
 }
 
 // ── Animation loop ──
@@ -585,9 +602,17 @@ function animate(time) {
   }
 
   if (!paused) {
-    // Read audio data and apply music reactivity before updating mode
+    // Apply size multiplier (with music reactivity if playing)
+    applySizeUpdate();
+
+    // Smooth audio data for glitch-free mode reactivity
     if (isMusicPlaying && analyser) {
-      applyMusicReactivity();
+      const SMOOTH = 0.35;
+      for (let i = 0; i < 128; i++) {
+        smoothedAudio[i] = smoothedAudio[i] * SMOOTH + (audioData[i] / 255) * (1 - SMOOTH);
+      }
+    } else {
+      smoothedAudio.fill(0);
     }
 
     modeTime += dt;
@@ -676,8 +701,10 @@ document.getElementById('btnPause').addEventListener('click', () => {
 });
 
 // ==================================================================
-// MUSIC SYSTEM — synthesized audio with AnalyserNode reactivity
+// MUSIC SYSTEM — fetches & plays "Never Gonna Give You Up"
 // ==================================================================
+const MUSIC_URL = 'assets/music/Never%20gonna%20give%20you%20up.mp3';
+
 async function playMusic() {
   const btn = document.getElementById('btnMusic');
 
@@ -688,35 +715,16 @@ async function playMusic() {
 
   if (musicLoading) return;
   musicLoading = true;
-  btn.textContent = '🎵 Starting...';
+  btn.textContent = '🎵 Loading...';
 
   try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-    // Create an oscillator-based synth for music-reactive particles
-    const sampleRate = audioCtx.sampleRate;
-    const duration = 30; // 30 seconds of generated music
-    const length = sampleRate * duration;
-    const buffer = audioCtx.createBuffer(1, length, sampleRate);
-    const data = buffer.getChannelData(0);
+    const response = await fetch(MUSIC_URL);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const arrayBuffer = await response.arrayBuffer();
+    audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
-    // Generate a simple progressive electronic beat pattern
-    for (let i = 0; i < length; i++) {
-      const t = i / sampleRate;
-      // Bass drum: low frequency pulse every beat
-      const beat = Math.sin(2 * Math.PI * 80 * t) * Math.exp(-t * 6) * Math.max(0, Math.sin(Math.PI * t * 2) ** 20);
-      // Hi-hat: high frequency noise
-      const hihat = (Math.random() * 2 - 1) * Math.max(0, Math.sin(Math.PI * t * 4) ** 40) * 0.3;
-      // Melody: evolving sine wave arpeggio
-      const note = Math.sin(2 * Math.PI * 220 * t + Math.sin(2 * Math.PI * 0.5 * t) * 2);
-      const melody = note * 0.15 * (Math.sin(2 * Math.PI * 0.25 * t) * 0.5 + 0.5);
-      // Bass line
-      const bass = Math.sin(2 * Math.PI * 110 * t) * 0.1 * Math.max(0, Math.sin(Math.PI * t * 1) ** 10);
-
-      data[i] = beat * 0.6 + hihat + melody + bass;
-    }
-
-    audioBuffer = buffer;
     audioSource = audioCtx.createBufferSource();
     audioSource.buffer = audioBuffer;
 
@@ -745,7 +753,7 @@ async function playMusic() {
     btn.textContent = '🎵 Stop';
     btn.classList.add('playing');
 
-    console.log('🎵 Now playing: synthesized electronic beat');
+    console.log('🎵 Now playing: Never Gonna Give You Up');
   } catch (err) {
     console.error('❌ Music error:', err);
     btn.textContent = '🎵 Error';
@@ -790,6 +798,45 @@ document.getElementById('sSens').addEventListener('input', function() {
   SETTINGS.musicSensitivity = v;
   document.getElementById('valSens').textContent = parseInt(this.value) + '%';
 });
+
+document.getElementById('sSize').addEventListener('input', function() {
+  const v = parseFloat(this.value);
+  SETTINGS.size = v;
+  document.getElementById('valSize').textContent = v.toFixed(1) + '×';
+});
+
+document.getElementById('sBright').addEventListener('input', function() {
+  const v = parseInt(this.value) / 100;
+  SETTINGS.vibrancy = v;
+  material.uniforms.uIntensity.value = v;
+  document.getElementById('valBright').textContent = parseInt(this.value) + '%';
+});
+
+// ── Reset to defaults ──
+function resetDefaults() {
+  SETTINGS.speed = 1.0;
+  SETTINGS.size = 1.0;
+  SETTINGS.vibrancy = 1.0;
+  SETTINGS.musicSensitivity = 0.7;
+
+  document.getElementById('sSpeed').value = '1.0';
+  document.getElementById('valSpeed').textContent = '1.0×';
+  document.getElementById('sSize').value = '1.0';
+  document.getElementById('valSize').textContent = '1.0×';
+  document.getElementById('sBright').value = '100';
+  document.getElementById('valBright').textContent = '100%';
+  document.getElementById('sSens').value = '70';
+  document.getElementById('valSens').textContent = '70%';
+
+  material.uniforms.uIntensity.value = 1.0;
+  setMode('vortex');
+  if (paused) {
+    paused = false;
+    document.getElementById('btnPause').textContent = '⏸ Pause';
+    document.getElementById('btnPause').classList.remove('paused');
+  }
+}
+document.getElementById('btnReset').addEventListener('click', resetDefaults);
 
 // ── Init ──
 console.log('🚀 Particle Playground loaded — move your mouse and enjoy!');

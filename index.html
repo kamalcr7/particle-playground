@@ -157,6 +157,7 @@
   <button data-mode="explosion" id="btnExplosion">Explosion<span class="key-hint">3</span></button>
   <button data-mode="aurora" id="btnAurora">Aurora<span class="key-hint">4</span></button>
   <button data-mode="nebula" id="btnNebula">Nebula<span class="key-hint">5</span></button>
+  <button data-mode="rickroll" id="btnRickroll">Rick Astley<span class="key-hint">6</span></button>
   <div class="sep"></div>
   <button class="pause-btn" id="btnPause">⏸ Pause<span class="key-hint">Space</span></button>
   <div class="sep"></div>
@@ -176,6 +177,8 @@
   <input type="range" id="sBright" min="0" max="100" step="5" value="100">
   <div class="sp-row"><span>Music React</span><span id="valSens">70%</span></div>
   <input type="range" id="sSens" min="0" max="100" step="5" value="70">
+  <div class="sp-row"><span>Count</span><span id="valCount">12k</span></div>
+  <input type="range" id="sCount" min="2000" max="25000" step="1000" value="12000">
 </div>
 </div>
 
@@ -194,9 +197,10 @@
 import * as THREE from 'three';
 
 // ── Config ──
+const MAX_PARTICLES = 25000;
 let PARTICLE_BUDGET = 12000; // adjustable via settings
-const MODES = ['vortex', 'gravity', 'explosion', 'aurora', 'nebula'];
-const MODE_NAMES = { vortex: 'Vortex', gravity: 'Gravity', explosion: 'Explosion', aurora: 'Aurora', nebula: 'Nebula' };
+const MODES = ['vortex', 'gravity', 'explosion', 'aurora', 'nebula', 'rickroll'];
+const MODE_NAMES = { vortex: 'Vortex', gravity: 'Gravity', explosion: 'Explosion', aurora: 'Aurora', nebula: 'Nebula', rickroll: 'Rick Astley' };
 
 // Adjustable settings
 const SETTINGS = {
@@ -210,8 +214,18 @@ const SETTINGS = {
 let currentMode = 'vortex';
 let paused = false;
 let mouse = new THREE.Vector2(0, 0);
+let mouse3D = new THREE.Vector3(0, 0, 0);
 let mouseDown = false;
 let clickBurstTime = 0;
+let auroraTime = 0;
+let nebulaTime = 0;
+let rickTime = 0;
+let nebulaCenter = new THREE.Vector3(0, 0, 0);
+let explosions = [];
+let beatCooldown = 0;
+let rickPositions = [];
+let rickColors = [];
+let rickCategories = [];
 
 // ── Audio state ──
 let audioCtx = null;
@@ -238,13 +252,13 @@ document.body.prepend(renderer.domElement);
 
 // ── Particle system ──
 let geometry = new THREE.BufferGeometry();
-const positions = new Float32Array(PARTICLE_BUDGET * 3);
-const colors = new Float32Array(PARTICLE_BUDGET * 3);
-const sizes = new Float32Array(PARTICLE_BUDGET);
+const positions = new Float32Array(MAX_PARTICLES * 3);
+const colors = new Float32Array(MAX_PARTICLES * 3);
+const sizes = new Float32Array(MAX_PARTICLES);
 const velocities = [];
 const basePositions = [];
 
-for (let i = 0; i < PARTICLE_BUDGET; i++) {
+for (let i = 0; i < MAX_PARTICLES; i++) {
   const i3 = i * 3;
   // Spread across a sphere
   const radius = 8 + Math.random() * 7;
@@ -269,9 +283,153 @@ for (let i = 0; i < PARTICLE_BUDGET; i++) {
   velocities.push({ x: 0, y: 0, z: 0 });
 }
 
+// Generate Rick Astley target positions and colors
+function initRickAstleyData() {
+  for (let i = 0; i < MAX_PARTICLES; i++) {
+    let x = 0, y = 0, z = 0;
+    let r = 1.0, g = 1.0, b = 1.0;
+    const rand = Math.random();
+    
+    if (rand < 0.15) {
+      // 1. Hair (Ginger)
+      const angle = Math.random() * Math.PI * 2;
+      const rad = Math.random() * 1.5;
+      x = 0.2 + rad * Math.cos(angle);
+      y = 5.2 + rad * Math.sin(angle) * 0.7;
+      z = (Math.random() - 0.5) * 1.2;
+      const c = new THREE.Color().setHSL(0.08, 0.85, 0.45 + Math.random() * 0.15);
+      r = c.r; g = c.g; b = c.b;
+      rickCategories.push('hair');
+    } else if (rand < 0.30) {
+      // 2. Face (Skin Tone)
+      const angle = Math.random() * Math.PI * 2;
+      const rx = Math.random() * 1.1;
+      const ry = Math.random() * 1.4;
+      x = rx * Math.cos(angle);
+      y = 3.4 + ry * Math.sin(angle);
+      z = (Math.random() - 0.5) * 0.8;
+      const c = new THREE.Color().setHSL(0.05, 0.6, 0.68 + Math.random() * 0.08);
+      r = c.r; g = c.g; b = c.b;
+      rickCategories.push('face');
+    } else if (rand < 0.63) {
+      // 3. Torso / Jacket (Black coat, white shirt) - Slimmed Down
+      const u = Math.random();
+      const v = Math.random();
+      y = -3.5 + v * 5.5; // [-3.5, 2.0]
+      const spread = 1.6 - (y - 2.0) * 0.08;
+      x = (u - 0.5) * 1.6 * spread;
+      z = (Math.random() - 0.5) * 1.8;
+      
+      if (Math.abs(x) < 0.6 && y > -1.5) {
+        // Shirt (White)
+        const c = new THREE.Color().setHSL(0.0, 0.0, 0.88 + Math.random() * 0.12);
+        r = c.r; g = c.g; b = c.b;
+      } else {
+        // Coat (Dark blue/black)
+        const c = new THREE.Color().setHSL(0.60, 0.35, 0.10 + Math.random() * 0.06);
+        r = c.r; g = c.g; b = c.b;
+      }
+      rickCategories.push('torso');
+    } else if (rand < 0.83) {
+      // 4. Arms — thick coat sleeves connecting shoulder to hand
+      const isLeft = Math.random() > 0.5;
+      const t = Math.random(); // 0 = shoulder end, 1 = hand end
+
+      // Arm centreline in local space (before 1.35 scale)
+      let cx, cy;
+      if (isLeft) {
+        cx = -0.8 - t * 1.0;  // -0.8 (shoulder) → -1.8 (hand)
+        cy =  1.5 - t * 0.3;  //  1.5 (shoulder) →  1.2 (hand)
+      } else {
+        cx =  0.8 + t * 1.2;  //  0.8 (shoulder) →  2.0 (hand)
+        cy =  0.5 - t * 1.0;  //  0.5 (shoulder) → -0.5 (hand)
+      }
+
+      // Perpendicular spread so it looks like a sleeve, not a wire
+      // For left arm the direction is roughly (-1, -0.3), perp is (0.3, -1) normalised
+      // For right arm the direction is roughly ( 1, -0.83), perp is (0.83, 1) normalised
+      const thickness = 1.15 * (1.0 - t * 0.22); // thicker coat sleeves
+      const perp = (Math.random() - 0.5) * thickness;
+      if (isLeft) {
+        // left arm direction (-1, -0.3) → perp (0.287, -0.958)
+        x = cx + perp *  0.287;
+        y = cy + perp * -0.958;
+      } else {
+        // right arm direction (1, -0.833) → perp (0.640, 0.768)
+        x = cx + perp *  0.640;
+        y = cy + perp *  0.768;
+      }
+      z = (Math.random() - 0.5) * 0.55;
+      const c = new THREE.Color().setHSL(0.60, 0.35, 0.10 + Math.random() * 0.06);
+      r = c.r; g = c.g; b = c.b;
+      rickCategories.push(isLeft ? 'left_arm' : 'right_arm');
+    } else if (rand < 0.92) {
+      // 5. Legs / Pants (Dark Trousers)
+      y = -10.0 + Math.random() * 6.5;
+      const legWidth = 0.45;
+      const legOffset = 0.55;
+      const isLeft = Math.random() > 0.5;
+      x = (isLeft ? -legOffset : legOffset) + (Math.random() - 0.5) * legWidth;
+      z = (Math.random() - 0.5) * 1.2;
+      const c2 = new THREE.Color().setHSL(0.60, 0.25, 0.08 + Math.random() * 0.05);
+      r = c2.r; g = c2.g; b = c2.b;
+      rickCategories.push('legs');
+    } else if (rand < 0.97) {
+      // 6. Hands (Skin Tone)
+      const isLeftHand = Math.random() > 0.5;
+      if (isLeftHand) {
+        // Left Hand (holding mic stand)
+        const angle = Math.random() * Math.PI * 2;
+        const rad = Math.random() * 0.5;
+        x = -1.8 + rad * Math.cos(angle);
+        y = 1.2 + rad * Math.sin(angle);
+        z = (Math.random() - 0.5) * 0.4;
+        rickCategories.push('left_hand');
+      } else {
+        // Right Hand (free gesturing hand)
+        const angle = Math.random() * Math.PI * 2;
+        const rad = Math.random() * 0.5;
+        x = 2.0 + rad * Math.cos(angle);
+        y = -0.5 + rad * Math.sin(angle);
+        z = (Math.random() - 0.5) * 0.5;
+        rickCategories.push('right_hand');
+      }
+      const c = new THREE.Color().setHSL(0.05, 0.6, 0.68 + Math.random() * 0.08);
+      r = c.r; g = c.g; b = c.b;
+    } else {
+      // 6. Mic & Stand
+      const isMicHead = Math.random() > 0.6;
+      if (isMicHead) {
+        const angle = Math.random() * Math.PI * 2;
+        const rad = Math.random() * 0.35;
+        x = -1.6 + rad * Math.cos(angle);
+        y = 4.0 + rad * Math.sin(angle);
+        z = (Math.random() - 0.5) * 0.4;
+      } else {
+        x = -1.8 + (Math.random() - 0.5) * 0.08;
+        y = -10.0 + Math.random() * 13.8;
+        z = (Math.random() - 0.5) * 0.08;
+      }
+      const c = new THREE.Color().setHSL(0.0, 0.0, 0.65 + Math.random() * 0.25);
+      r = c.r; g = c.g; b = c.b;
+      rickCategories.push('mic');
+    }
+    
+    // Scale slightly to center it nicely
+    x *= 1.35;
+    y *= 1.35;
+    z *= 1.35;
+    
+    rickPositions.push({ x, y, z });
+    rickColors.push({ r, g, b });
+  }
+}
+initRickAstleyData();
+
 geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+geometry.setDrawRange(0, PARTICLE_BUDGET);
 
 const vertexShader = `
   attribute float size;
@@ -292,8 +450,10 @@ const fragmentShader = `
     vec2 c = gl_PointCoord - vec2(0.5);
     float d = length(c);
     if (d > 0.5) discard;
+    // Soft radial alpha for the particle dot shape
     float alpha = 1.0 - smoothstep(0.0, 0.5, d);
-    gl_FragColor = vec4(vColor, alpha * uIntensity);
+    // Multiply brightness into RGB so dimming does NOT make particles blurry/transparent
+    gl_FragColor = vec4(vColor * uIntensity, alpha);
   }
 `;
 
@@ -302,9 +462,8 @@ const material = new THREE.ShaderMaterial({
   fragmentShader,
   transparent: true,
   depthWrite: false,
-  blending: THREE.CustomBlending,
-  blendSrc: THREE.SrcAlphaFactor,
-  blendDst: THREE.OneFactor,
+  // Standard alpha blending: particles dim cleanly without additive glow inflation
+  blending: THREE.NormalBlending,
   uniforms: {
     uIntensity: { value: 1.0 }
   },
@@ -324,9 +483,9 @@ let modeTime = 0;
 // ── Mode update functions ──
 function updateVortex(dt) {
   const pos = posAttr.array;
-  const mx = mouse.x * 20;
-  const my = mouse.y * 13;
-  const mz = 0;
+  const mx = mouse3D.x;
+  const my = mouse3D.y;
+  const mz = mouse3D.z;
   const bassBoost = (1.0 + smoothedAudio[0] * 1.5) * SETTINGS.speed;
   const speedMul = dt * bassBoost;
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
@@ -348,84 +507,188 @@ function updateVortex(dt) {
 
 function updateGravity(dt) {
   const pos = posAttr.array;
-  const mx = mouse.x * 20;
-  const my = mouse.y * 13;
-  const mz = 0;
-  const bassBoost = (1.0 + smoothedAudio[0] * 1.5) * SETTINGS.speed;
-  const speedMul = dt * bassBoost;
+  const mx = mouse3D.x;
+  const my = mouse3D.y;
+  const mz = mouse3D.z;
+  const sens = SETTINGS.musicSensitivity;
+  const bass = smoothedAudio[0];
+  const speedMul = SETTINGS.speed;
+
+  // Music beat detector for gravity mode
+  if (beatCooldown > 0) {
+    beatCooldown -= dt;
+  }
+
+  // Trigger beat-based explosion if bass threshold exceeded and cooldown is over
+  if (isMusicPlaying && bass > 0.45 && beatCooldown <= 0) {
+    const center = mouseDown ? mouse3D.clone() : new THREE.Vector3(0, 0, 0);
+    const strength = 10 + bass * 12;
+    const maxRadius = 5 + bass * 6;
+    const duration = 0.35 + bass * 0.15;
+    
+    explosions.push({
+      center: center,
+      radius: 0,
+      maxRadius: maxRadius,
+      strength: strength,
+      age: 0,
+      duration: duration
+    });
+    beatCooldown = 0.20; // 200ms cooldown to avoid visual noise/spam
+  }
+
+  // Update active explosions
+  for (let j = explosions.length - 1; j >= 0; j--) {
+    const exp = explosions[j];
+    exp.age += dt;
+    exp.radius = (exp.age / exp.duration) * exp.maxRadius;
+    if (exp.age >= exp.duration) {
+      explosions.splice(j, 1);
+    }
+  }
+
+  const bassBoost = (1.0 + bass * 1.5 * sens) * speedMul;
+
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
+    
+    // Normal gravity pull towards mouse
     let dx = mx - pos[i3];
     let dy = my - pos[i3 + 1];
     let dz = mz - pos[i3 + 2];
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.1;
-    const force = (25 / (dist * dist + 0.5)) * bassBoost;
-    velocities[i].x += dx / dist * force * dt;
-    velocities[i].y += dy / dist * force * dt;
-    velocities[i].z += dz / dist * force * dt;
-    velocities[i].x *= 0.96;
-    velocities[i].y *= 0.96;
-    velocities[i].z *= 0.96;
-    pos[i3] += velocities[i].x * speedMul * 8;
-    pos[i3 + 1] += velocities[i].y * speedMul * 8;
-    pos[i3 + 2] += velocities[i].z * speedMul * 8;
+    
+    // Gravity force
+    const force = (30.0 / (dist * dist + 1.0));
+    velocities[i].x += (dx / dist) * force * dt * 8;
+    velocities[i].y += (dy / dist) * force * dt * 8;
+    velocities[i].z += (dz / dist) * force * dt * 8;
+    
+    // Apply shockwave explosion forces if any exist
+    for (let j = 0; j < explosions.length; j++) {
+      const exp = explosions[j];
+      const expDx = pos[i3] - exp.center.x;
+      const expDy = pos[i3 + 1] - exp.center.y;
+      const expDz = pos[i3 + 2] - exp.center.z;
+      const expDist = Math.sqrt(expDx * expDx + expDy * expDy + expDz * expDz) + 0.001;
+
+      const waveWidth = 3.5;
+      const distToFront = Math.abs(expDist - exp.radius);
+      if (distToFront < waveWidth) {
+        const factor = 1.0 - (distToFront / waveWidth);
+        const push = (factor * exp.strength * (1.0 - exp.age / exp.duration)) / (expDist * 0.2 + 1.0);
+        velocities[i].x += (expDx / expDist) * push * dt * 65;
+        velocities[i].y += (expDy / expDist) * push * dt * 65;
+        velocities[i].z += (expDz / expDist) * push * dt * 65;
+      }
+    }
+
+    // Apply damping (friction)
+    velocities[i].x *= 0.94;
+    velocities[i].y *= 0.94;
+    velocities[i].z *= 0.94;
+    
+    // Update positions
+    pos[i3] += velocities[i].x * bassBoost * 8 * dt;
+    pos[i3 + 1] += velocities[i].y * bassBoost * 8 * dt;
+    pos[i3 + 2] += velocities[i].z * bassBoost * 8 * dt;
   }
   posAttr.needsUpdate = true;
 }
 
 function updateExplosion(dt) {
   const pos = posAttr.array;
-  const mx = mouse.x * 20;
-  const my = mouse.y * 13;
-  const mz = 0;
   const sens = SETTINGS.musicSensitivity;
+  const bass = smoothedAudio[0];
+  const speedMul = SETTINGS.speed;
 
-  if (clickBurstTime > 0) {
-    clickBurstTime -= dt;
+  // Music beat detector for explosion mode
+  if (beatCooldown > 0) {
+    beatCooldown -= dt;
   }
 
-  const bass = smoothedAudio[0];
-  const bassBoost = (1.0 + bass * 2.0 * sens) * SETTINGS.speed;
+  // Trigger beat-based explosion if bass threshold exceeded and cooldown is over
+  if (isMusicPlaying && bass > 0.45 && beatCooldown <= 0) {
+    const center = mouseDown ? mouse3D.clone() : new THREE.Vector3(0, 0, 0);
+    // Controlled smaller shockwave parameters to preserve sphere shape visibility
+    const strength = 12 + bass * 15;
+    const maxRadius = 8 + bass * 8;
+    const duration = 0.5 + bass * 0.3;
+    
+    explosions.push({
+      center: center,
+      radius: 0,
+      maxRadius: maxRadius,
+      strength: strength,
+      age: 0,
+      duration: duration
+    });
+    beatCooldown = 0.20; // 200ms cooldown
+  }
 
+  // Update active explosions
+  for (let j = explosions.length - 1; j >= 0; j--) {
+    const exp = explosions[j];
+    exp.age += dt;
+    exp.radius = (exp.age / exp.duration) * exp.maxRadius;
+    if (exp.age >= exp.duration) {
+      explosions.splice(j, 1);
+    }
+  }
+
+  const bassBoost = 1.0 + bass * 1.2 * sens;
+
+  // Update particles
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
+    
+    // Apply shockwave forces
+    for (let j = 0; j < explosions.length; j++) {
+      const exp = explosions[j];
+      const dx = pos[i3] - exp.center.x;
+      const dy = pos[i3 + 1] - exp.center.y;
+      const dz = pos[i3 + 2] - exp.center.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.001;
 
-    // Music-triggered mini-burst: bass above threshold pushes particles
-    if (bass > 0.15 * (1.5 - sens * 0.5)) {
-      let dx = pos[i3] - mx;
-      let dy = pos[i3 + 1] - my;
-      let dz = pos[i3 + 2] - mz;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.01;
-      const force = (12 / (dist + 0.5)) * bass * sens;
-      velocities[i].x += (dx / dist) * force * dt * 4;
-      velocities[i].y += (dy / dist) * force * dt * 4;
-      velocities[i].z += (dz / dist) * force * dt * 4;
+      // Outer shockwave ring force (expansion front)
+      const waveWidth = 2.5;
+      const distToFront = Math.abs(dist - exp.radius);
+      if (distToFront < waveWidth) {
+        const factor = 1.0 - (distToFront / waveWidth); // 0 to 1
+        const push = (factor * exp.strength * (1.0 - exp.age / exp.duration)) / (dist * 0.4 + 1.0);
+        
+        // Outward acceleration
+        velocities[i].x += (dx / dist) * push * dt * 40 * speedMul;
+        velocities[i].y += (dy / dist) * push * dt * 40 * speedMul;
+        velocities[i].z += (dz / dist) * push * dt * 40 * speedMul;
+      }
+      
+      // Light internal draft to keep center clean
+      if (dist < exp.radius) {
+        const draft = (0.15 * exp.strength * (1.0 - exp.age / exp.duration)) / (dist + 1.0);
+        velocities[i].x += (dx / dist) * draft * dt * 40 * speedMul;
+        velocities[i].y += (dy / dist) * draft * dt * 40 * speedMul;
+        velocities[i].z += (dz / dist) * draft * dt * 40 * speedMul;
+      }
     }
 
-    if (clickBurstTime > 0) {
-      let dx = pos[i3] - mx;
-      let dy = pos[i3 + 1] - my;
-      let dz = pos[i3 + 2] - mz;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.01;
-      const force = (15 / (dist + 0.5)) * bassBoost;
-      velocities[i].x += (dx / dist) * force * dt * 3;
-      velocities[i].y += (dy / dist) * force * dt * 3;
-      velocities[i].z += (dz / dist) * force * dt * 3;
-    }
-
+    // High spring return force to preserve sphere visibility
     const bx = basePositions[i3];
     const by = basePositions[i3 + 1];
     const bz = basePositions[i3 + 2];
     const dx = bx - pos[i3];
     const dy = by - pos[i3 + 1];
     const dz = bz - pos[i3 + 2];
-    velocities[i].x += dx * dt * 0.5;
-    velocities[i].y += dy * dt * 0.5;
-    velocities[i].z += dz * dt * 0.5;
+    
+    velocities[i].x += dx * dt * 1.8;
+    velocities[i].y += dy * dt * 1.8;
+    velocities[i].z += dz * dt * 1.8;
 
-    velocities[i].x *= 0.94;
-    velocities[i].y *= 0.94;
-    velocities[i].z *= 0.94;
+    // Apply physics
+    velocities[i].x *= 0.90;
+    velocities[i].y *= 0.90;
+    velocities[i].z *= 0.90;
+    
     pos[i3] += velocities[i].x * dt * 8 * bassBoost;
     pos[i3 + 1] += velocities[i].y * dt * 8 * bassBoost;
     pos[i3 + 2] += velocities[i].z * dt * 8 * bassBoost;
@@ -433,31 +696,97 @@ function updateExplosion(dt) {
   posAttr.needsUpdate = true;
 }
 
+// ── Inline HSL → RGB (avoids allocating new THREE.Color per particle per frame) ──
+// Implements the CSS/standard HSL algorithm. h/s/l all 0-1.
+// Modifies outArray[outIndex...outIndex+2] in-place to avoid GC allocation.
+function hslToRgb(h, s, l, outArray, outIndex) {
+  if (s === 0) {
+    outArray[outIndex] = l;
+    outArray[outIndex + 1] = l;
+    outArray[outIndex + 2] = l;
+    return;
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2rgb = (t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  outArray[outIndex] = hue2rgb(h + 1/3);
+  outArray[outIndex + 1] = hue2rgb(h);
+  outArray[outIndex + 2] = hue2rgb(h - 1/3);
+}
+
 function updateAurora(dt) {
   const pos = posAttr.array;
   const col = colAttr.array;
-  const t = modeTime;
   const sens = SETTINGS.musicSensitivity;
   const bass = smoothedAudio[0];
   const mid = (smoothedAudio[4] + smoothedAudio[8] + smoothedAudio[12]) / 3;
-  const speedMul = (1.0 + bass * 0.6 * sens) * SETTINGS.speed;
-  const ampMul = 1.0 + bass * 0.4 * sens;
+  
+  // Accumulate auroraTime smoothly, speeding up on beats
+  const speedMul = (1.0 + bass * 1.5 * sens) * SETTINGS.speed;
+  auroraTime += dt * speedMul;
+  
+  // Pulsate amplitude on beat
+  let beatAmp = 1.0;
+  if (isMusicPlaying && bass > 0.45) {
+    beatAmp = 1.0 + (bass - 0.45) * 1.8 * sens;
+  }
+  const ampMul = (1.0 + bass * 0.4 * sens) * beatAmp;
 
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
     const phase = i * 0.008;
-    pos[i3] = basePositions[i3] + Math.sin(t * 0.4 * speedMul + phase) * 3 * ampMul + Math.sin(t * 0.7 * speedMul + phase * 1.7) * 1.5;
-    pos[i3 + 1] = basePositions[i3 + 1] + Math.sin(t * 0.3 * speedMul + phase * 1.3 + 1.2) * 2.5 * ampMul + Math.cos(t * 0.5 * speedMul + phase * 0.9) * 1.5;
-    pos[i3 + 2] = basePositions[i3 + 2] + Math.sin(t * 0.2 * speedMul + phase * 0.7 + 2.3) * 2 * ampMul;
+    
+    // Wave coordinates based on smooth auroraTime
+    const waveX = Math.sin(auroraTime * 0.4 + phase) * 3 * ampMul + Math.sin(auroraTime * 0.7 + phase * 1.7) * 1.5;
+    const waveY = Math.sin(auroraTime * 0.3 + phase * 1.3 + 1.2) * 2.5 * ampMul + Math.cos(auroraTime * 0.5 + phase * 0.9) * 1.5;
+    const waveZ = Math.sin(auroraTime * 0.2 + phase * 0.7 + 2.3) * 2 * ampMul;
 
-    const hueShift = mid * 0.2 * sens;
-    const hue = 0.5 + 0.3 * Math.sin(t * 0.15 + phase * 2 + hueShift);
-    const sat = Math.min(1, 0.7 + 0.3 * Math.sin(t * 0.1 + phase) + mid * 0.15 * sens);
-    const lum = 0.4 + 0.4 * Math.sin(t * 0.2 + phase * 1.5) + bass * 0.15 * sens;
-    const c = new THREE.Color().setHSL(hue % 1, sat, Math.min(1, lum));
-    col[i3] = c.r;
-    col[i3 + 1] = c.g;
-    col[i3 + 2] = c.b;
+    let targetX = basePositions[i3] + waveX;
+    let targetY = basePositions[i3 + 1] + waveY;
+    let targetZ = basePositions[i3 + 2] + waveZ;
+
+    // Interactive mouse/touch warp
+    const dx = targetX - mouse3D.x;
+    const dy = targetY - mouse3D.y;
+    const dz = targetZ - mouse3D.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.01;
+    
+    const maxDist = 12.0;
+    if (dist < maxDist) {
+      const influence = (1.0 - dist / maxDist);
+      const smoothInfluence = influence * influence * (3.0 - 2.0 * influence); // smoothstep
+      
+      const swirlAngle = auroraTime * 2.0 * smoothInfluence;
+      const rx = dx * Math.cos(swirlAngle) - dy * Math.sin(swirlAngle);
+      const ry = dx * Math.sin(swirlAngle) + dy * Math.cos(swirlAngle);
+      
+      targetX = mouse3D.x + rx + (dx / dist) * smoothInfluence * 2.0;
+      targetY = mouse3D.y + ry + (dy / dist) * smoothInfluence * 2.0;
+      targetZ += dz * smoothInfluence * 0.5;
+    }
+
+    pos[i3] = targetX;
+    pos[i3 + 1] = targetY;
+    pos[i3 + 2] = targetZ;
+
+    // Color reaction: Shift colors on mid/bass frequencies
+    const hueShift = mid * 0.25 * sens + (isMusicPlaying && bass > 0.45 ? (bass - 0.45) * 0.25 * sens : 0);
+    const hue = 0.5 + 0.3 * Math.sin(auroraTime * 0.15 + phase * 2 + hueShift);
+    const sat = Math.min(1.0, 0.75 + 0.25 * Math.sin(auroraTime * 0.1 + phase) + mid * 0.15 * sens);
+    const lum = Math.min(0.95, 0.4 + 0.45 * Math.sin(auroraTime * 0.2 + phase * 1.5) + bass * 0.2 * sens);
+    
+    let normalizedHue = hue % 1.0;
+    if (normalizedHue < 0) normalizedHue += 1.0;
+
+    // Use inline helper — no GC pressure
+    hslToRgb(normalizedHue, sat, lum, col, i3);
   }
   posAttr.needsUpdate = true;
   colAttr.needsUpdate = true;
@@ -466,39 +795,353 @@ function updateAurora(dt) {
 function updateNebula(dt) {
   const pos = posAttr.array;
   const col = colAttr.array;
-  const t = modeTime;
-  const mx = mouse.x * 20;
-  const my = mouse.y * 13;
   const sens = SETTINGS.musicSensitivity;
   const bass = smoothedAudio[0];
   const mid = (smoothedAudio[4] + smoothedAudio[8] + smoothedAudio[12]) / 3;
-  const speedMul = (1.0 + bass * 0.8 * sens) * SETTINGS.speed;
+  const treble = (smoothedAudio[64] + smoothedAudio[80] + smoothedAudio[96]) / 3;
+  
+  // Accumulate nebulaTime smoothly, speeding up on beats
+  const speedMul = (1.0 + bass * 1.8 * sens) * SETTINGS.speed;
+  nebulaTime += dt * speedMul;
+  
+  // Smoothly move the nebula core towards the unprojected 3D mouse cursor position
+  nebulaCenter.lerp(mouse3D, dt * 3.0);
+
   const ampMul = 1.0 + bass * 0.4 * sens;
+  
+  // Beat scaling for radial expansion
+  let beatScale = 1.0;
+  if (isMusicPlaying && bass > 0.45) {
+    beatScale = 1.0 + (bass - 0.45) * 1.2 * sens;
+  }
 
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
     const i3 = i * 3;
     const phase = i * 0.005;
-    const orbitSpeed = (0.15 + 0.3 * Math.sin(phase * 3)) * speedMul;
-    const orbitPhase = phase * 20 + t * orbitSpeed;
-    const radius = (2 + 10 * Math.sin(phase * 5 + 1.0)) * ampMul;
-    const height = 4 * Math.cos(phase * 4 + t * 0.1) * speedMul;
+    
+    // Galaxy core radius base
+    const r0 = 1.0 + (i % 100) * 0.15; // 1.0 to 15.85
+    
+    // Assign particle to one of 2 spiral arms
+    const armOffset = (i % 2) * Math.PI;
+    
+    // Orbit angle with differential rotation (inner rotates faster)
+    const baseOrbitSpeed = 0.9 / (r0 * 0.15 + 0.4);
+    const orbitAngle = armOffset + r0 * 0.28 + nebulaTime * baseOrbitSpeed;
+    
+    // Radial expansion and waves driven by music + beat scale
+    let r = r0 * ampMul * beatScale;
+    r += Math.sin(nebulaTime * 2.5 - r0 * 0.6) * mid * 1.5 * sens;
 
-    const cx = mx * 0.3;
-    const cy = my * 0.3;
-    const cz = 0;
+    // Disc thickness (Z height) modulated by music
+    const thickness = (1.2 + mid * 3.5 * sens) * Math.cos(r0 * 0.08);
+    const z = Math.sin(nebulaTime * 0.7 + r0 * 0.25) * thickness;
 
-    pos[i3] = cx + radius * Math.cos(orbitPhase) + Math.sin(t * 0.2 + phase * 7) * 1.5 * ampMul;
-    pos[i3 + 1] = cy + height + radius * 0.4 * Math.sin(orbitPhase * 0.7) + Math.cos(t * 0.15 + phase * 5) * 1.5;
-    pos[i3 + 2] = cz + radius * 0.5 * Math.sin(orbitPhase + 1.5) + Math.sin(t * 0.1 + phase * 6) * 1.5;
+    // Default galaxy coordinates centered on nebulaCenter
+    let targetX = nebulaCenter.x + r * Math.cos(orbitAngle);
+    let targetY = nebulaCenter.y + r * Math.sin(orbitAngle) * 0.75; // slightly tilted disc for depth
+    let targetZ = nebulaCenter.z + z;
 
-    const hueShift = mid * 0.2 * sens;
-    const hue = (0.75 + 0.35 * Math.sin(phase * 8 + t * 0.05 + hueShift)) % 1;
-    const sat = Math.min(1, 0.7 + 0.3 * Math.sin(phase * 6 + t * 0.07) + mid * 0.2 * sens);
-    const lum = Math.min(1, 0.3 + 0.5 * (0.5 + 0.5 * Math.sin(phase * 10 + t * 0.1)) + bass * 0.2 * sens);
-    const c = new THREE.Color().setHSL(hue < 0 ? hue + 1 : hue > 1 ? hue - 1 : hue, sat, lum);
-    col[i3] = c.r;
-    col[i3 + 1] = c.g;
-    col[i3 + 2] = c.b;
+    // Interactive Gravity Well (Black Hole)
+    // If the mouse/touch is pressed, suck particles into the core at the cursor
+    if (mouseDown) {
+      const dx = mouse3D.x - pos[i3];
+      const dy = mouse3D.y - pos[i3 + 1];
+      const dz = mouse3D.z - pos[i3 + 2];
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.1;
+      
+      const pull = (10.0 / (dist + 1.0)) * dt * 4.0 * SETTINGS.speed;
+      pos[i3] += dx * pull;
+      pos[i3 + 1] += dy * pull;
+      pos[i3 + 2] += dz * pull;
+    } else {
+      // Return smoothly to their orbits
+      const lerpSpeed = dt * 5.0 * SETTINGS.speed;
+      pos[i3] += (targetX - pos[i3]) * lerpSpeed;
+      pos[i3 + 1] += (targetY - pos[i3 + 1]) * lerpSpeed;
+      pos[i3 + 2] += (targetZ - pos[i3 + 2]) * lerpSpeed;
+    }
+
+    // Wide HSL Rainbow spectrum mapping (Gold core, Magenta middle, Cyan/Emerald tips)
+    const distPercent = r0 / 16.0; // 0 to 1
+    let hue;
+    let sat = 0.92 + Math.sin(nebulaTime * 0.15 + phase) * 0.08;
+    let lum = 0.38 + (isMusicPlaying && bass > 0.45 ? (bass - 0.45) * 0.3 * sens : 0) + Math.sin(nebulaTime * 0.1 + phase * 4) * 0.08;
+
+    if (distPercent < 0.20) {
+      // Hot Core: glowing gold/orange/yellow
+      const normDist = distPercent / 0.20;
+      hue = 0.03 + 0.08 * normDist + bass * 0.05 * sens;
+      lum += 0.2 * (1.0 - normDist); // core glows brighter
+    } else if (distPercent < 0.60) {
+      // Inner Arms: deep magenta/pink to violet
+      const normDist = (distPercent - 0.20) / 0.40;
+      hue = 0.8 + 0.15 * normDist + mid * 0.08 * sens;
+    } else {
+      // Outer Arms: bright cyan shifting to emerald green
+      const normDist = (distPercent - 0.60) / 0.40;
+      hue = 0.5 + 0.15 * normDist + treble * 0.15 * sens;
+    }
+
+    let normalizedHue = hue % 1.0;
+    if (normalizedHue < 0) normalizedHue += 1.0;
+
+    // Use inline helper — no GC pressure
+    hslToRgb(normalizedHue, Math.min(1.0, sat), Math.min(1.0, lum), col, i3);
+  }
+  posAttr.needsUpdate = true;
+  colAttr.needsUpdate = true;
+}
+
+// ── Rick keyframe skeleton ─────────────────────────────────────────
+// Each pose is { headX, headY, torsoX, torsoY, torsoLean,
+//               legLX, legLY, legRX, legRY,
+//               lhX, lhY, rhX, rhY }
+// All values are deltas from the neutral rick position.
+const RICK_POSES = [
+  // 0 — Neutral arms-at-sides (standing still)
+  { headX:0,  headY:0,   torsoX:0,   torsoY:0,  torsoLean:0,
+    legLX:0,  legLY:0,   legRX:0,   legRY:0,
+    lhX:-0.5, lhY:-1.5,  rhX:0.5,  rhY:-1.5 },
+  // 1 — Left sway: weight on left foot, right arm lifts
+  { headX:-1.2,headY:0.4, torsoX:-0.9,torsoY:0.3, torsoLean:-0.15,
+    legLX:-0.3,legLY:0,  legRX:0.4, legRY:0,
+    lhX:-1.8, lhY:0.5,  rhX:1.5,  rhY:2.5 },
+  // 2 — Right sway: weight on right foot, left arm lifts
+  { headX:1.2, headY:0.4, torsoX:0.9, torsoY:0.3, torsoLean:0.15,
+    legLX:-0.4,legLY:0,  legRX:0.3, legRY:0,
+    lhX:-1.5, lhY:2.5,  rhX:1.8,  rhY:0.5 },
+  // 3 — Deep bounce down: body drops, knees bend out
+  { headX:0,  headY:-1.2, torsoX:0,  torsoY:-1.0, torsoLean:0,
+    legLX:-1.4,legLY:-0.8,legRX:1.4, legRY:-0.8,
+    lhX:-2.2, lhY:-0.5,  rhX:2.2,  rhY:-0.5 },
+  // 4 — Reach forward / point: right arm extends diagonally up-right
+  { headX:0.5, headY:0.3, torsoX:0.4, torsoY:0.2, torsoLean:0.1,
+    legLX:-0.2,legLY:0,  legRX:0.2, legRY:0,
+    lhX:-1.0, lhY:0.8,  rhX:4.0,  rhY:3.0 },
+  // 5 — Arms-wide victory: both arms out to sides, head tilts up
+  { headX:0,  headY:0.5,  torsoX:0,  torsoY:0.3, torsoLean:0,
+    legLX:-0.8,legLY:0,  legRX:0.8, legRY:0,
+    lhX:-4.5, lhY:1.5,  rhX:4.5,  rhY:1.5 },
+  // 6 — Left arm thrust forward (singing pose)
+  { headX:-0.4,headY:0.2, torsoX:-0.3,torsoY:0.1, torsoLean:-0.1,
+    legLX:0,  legLY:0,  legRX:0,  legRY:0,
+    lhX:-3.5, lhY:2.0,  rhX:0.8,  rhY:-1.0 },
+  // 7 — Knee kick left: left knee lifts up
+  { headX:0.3, headY:0.2, torsoX:0.2, torsoY:0.4, torsoLean:0.08,
+    legLX:-1.0,legLY:3.0, legRX:0.2, legRY:0,
+    lhX:-1.0, lhY:1.2,  rhX:2.0,  rhY:1.0 },
+  // 8 — Knee kick right: right knee lifts up
+  { headX:-0.3,headY:0.2, torsoX:-0.2,torsoY:0.4, torsoLean:-0.08,
+    legLX:-0.2,legLY:0,  legRX:1.0, legRY:3.0,
+    lhX:-2.0, lhY:1.0,  rhX:1.0,  rhY:1.2 },
+];
+
+// Sequence of pose indices for each routine (loops)
+const RICK_ROUTINES = [
+  [0,1,3,2,3,0],           // R0: Classic sway & bounce
+  [0,4,0,6,0,4,0,5],      // R1: Reach & point & arms-wide
+  [0,1,7,2,8,3,0],        // R2: Side-step with knee kicks
+  [0,3,1,3,2,3,5,3],      // R3: Energetic bounce & arms-wide
+];
+
+// Smoothly interpolate one scalar between two poses
+function rickLerp(a, b, t) { return a + (b - a) * t; }
+
+// Get interpolated skeletal pose for the current dancePhase
+function getRickPose(routineIdx, dancePhase) {
+  const seq = RICK_ROUTINES[routineIdx];
+  const totalPoses = seq.length;
+  // Each pose holds for 1 beat-unit; fractional part is blend into next
+  const pos = dancePhase * totalPoses;
+  const idxA = Math.floor(pos) % totalPoses;
+  const idxB = (idxA + 1) % totalPoses;
+  const t = pos - Math.floor(pos);
+  // Smooth the blend with a smoothstep curve
+  const blend = t * t * (3 - 2 * t);
+  const pA = RICK_POSES[seq[idxA]];
+  const pB = RICK_POSES[seq[idxB]];
+  return {
+    headX:    rickLerp(pA.headX,    pB.headX,    blend),
+    headY:    rickLerp(pA.headY,    pB.headY,    blend),
+    torsoX:   rickLerp(pA.torsoX,   pB.torsoX,   blend),
+    torsoY:   rickLerp(pA.torsoY,   pB.torsoY,   blend),
+    torsoLean:rickLerp(pA.torsoLean,pB.torsoLean,blend),
+    legLX:    rickLerp(pA.legLX,    pB.legLX,    blend),
+    legLY:    rickLerp(pA.legLY,    pB.legLY,    blend),
+    legRX:    rickLerp(pA.legRX,    pB.legRX,    blend),
+    legRY:    rickLerp(pA.legRY,    pB.legRY,    blend),
+    lhX:      rickLerp(pA.lhX,      pB.lhX,      blend),
+    lhY:      rickLerp(pA.lhY,      pB.lhY,      blend),
+    rhX:      rickLerp(pA.rhX,      pB.rhX,      blend),
+    rhY:      rickLerp(pA.rhY,      pB.rhY,      blend),
+  };
+}
+
+function getRickDanceTarget(pose, cat, i, intens) {
+  let tx = rickPositions[i].x;
+  let ty = rickPositions[i].y;
+  let tz = rickPositions[i].z;
+  const s = intens;
+
+  if (cat === 'hair' || cat === 'face') {
+    tx += pose.headX * s;
+    ty += pose.headY * s;
+    tx += pose.torsoLean * 1.5 * s;
+  } else if (cat === 'torso') {
+    tx += pose.torsoX * s;
+    ty += pose.torsoY * s;
+    // Lean: upper torso leans more than lower
+    const baseY = rickPositions[i].y / 1.35; // undo the 1.35 scale for range calc
+    const torsoFrac = Math.max(0, Math.min(1, (baseY + 3.5) / 5.5));
+    tx += pose.torsoLean * torsoFrac * 2.5 * s;
+  } else if (cat === 'legs') {
+    const baseX = rickPositions[i].x;
+    const isLeft = baseX < 0;
+    const baseY = rickPositions[i].y / 1.35;
+    // legFrac=0 at feet (y=-10), legFrac=1 at hip (y=-3.5)
+    const legFrac = Math.max(0, Math.min(1, (baseY + 10.0) / 6.5));
+    if (isLeft) {
+      tx += rickLerp(pose.legLX, pose.torsoX, legFrac) * s;
+      ty += rickLerp(pose.legLY, pose.torsoY, legFrac) * s;
+    } else {
+      tx += rickLerp(pose.legRX, pose.torsoX, legFrac) * s;
+      ty += rickLerp(pose.legRY, pose.torsoY, legFrac) * s;
+    }
+  } else if (cat === 'left_arm') {
+    // Arm follows shoulder (torso) at base and hand at tip
+    const baseX = rickPositions[i].x / 1.35; // un-scale
+    // armT: 0=shoulder (x=-0.8), 1=hand (x=-1.8)
+    const armT = Math.max(0, Math.min(1, (-baseX - 0.8) / 1.0));
+    tx += rickLerp(pose.torsoX, pose.lhX, armT) * s;
+    ty += rickLerp(pose.torsoY, pose.lhY, armT) * s;
+  } else if (cat === 'right_arm') {
+    const baseX = rickPositions[i].x / 1.35;
+    // armT: 0=shoulder (x=0.8), 1=hand (x=2.0)
+    const armT = Math.max(0, Math.min(1, (baseX - 0.8) / 1.2));
+    tx += rickLerp(pose.torsoX, pose.rhX, armT) * s;
+    ty += rickLerp(pose.torsoY, pose.rhY, armT) * s;
+  } else if (cat === 'left_hand') {
+    tx += pose.lhX * s;
+    ty += pose.lhY * s;
+  } else if (cat === 'right_hand') {
+    tx += pose.rhX * s;
+    ty += pose.rhY * s;
+  } else if (cat === 'mic') {
+    const micFrac = Math.max(0, Math.min(1, (rickPositions[i].y / 1.35 + 10.0) / 14.0));
+    tx += pose.lhX * micFrac * s * 0.7;
+    ty += pose.torsoY * micFrac * s * 0.3;
+  }
+  return { x: tx, y: ty, z: tz };
+}
+
+function updateRickroll(dt) {
+  const pos = posAttr.array;
+  const col = colAttr.array;
+  const sens = SETTINGS.musicSensitivity;
+  const bass = smoothedAudio[0];
+  const speedMul = SETTINGS.speed;
+
+  // Dance clock: each pose segment lasts ~0.8s at speed=1. Bass hits accelerate slightly.
+  const beatBoost = 1.0 + bass * 0.8 * sens;
+  rickTime += dt * beatBoost * speedMul;
+
+  // Routine switches every 16s of song time; without music we cycle by rickTime
+  const songTime = (isMusicPlaying && audioCtx) ? (audioCtx.currentTime - musicStartTime) : (rickTime * 0.8);
+  const routineA = Math.floor(songTime / 16) % 4;
+  const routineB = (routineA + 1) % 4;
+  const routineProgress = (songTime % 16) / 16;
+  const routineBlend = Math.max(0, Math.min(1, (routineProgress - 0.9) / 0.1));
+
+  // dancePhase 0→1 cycles through the pose sequence once per ~2s
+  const dancePhase = (rickTime * 0.5) % 1.0;
+
+  // Base intensity: 1.0 unit at rest, more when music plays
+  const intensity = isMusicPlaying ? Math.min(1.6, 0.9 + bass * 0.9 * sens) : 0.55;
+
+  // PRE-COMPUTE pose once per frame (not per particle — same pose for all)
+  const poseA = getRickPose(routineA, dancePhase);
+  let framePose = poseA;
+  if (routineBlend > 0) {
+    const poseB = getRickPose(routineB, dancePhase);
+    framePose = {};
+    for (const k of Object.keys(poseA)) {
+      framePose[k] = rickLerp(poseA[k], poseB[k], routineBlend);
+    }
+  }
+
+  // On beat, shake/pulse Rick Astley scale slightly
+  const beatScale = 1.0 + (bass * 0.15 * sens);
+
+  // If mouse is down or user touches, repel particles from the cursor
+  if (mouseDown) {
+    for (let i = 0; i < PARTICLE_BUDGET; i++) {
+      const i3 = i * 3;
+      const dx = pos[i3] - mouse3D.x;
+      const dy = pos[i3 + 1] - mouse3D.y;
+      const dz = pos[i3 + 2] - mouse3D.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.1;
+      
+      if (dist < 15.0) {
+        const force = (25.0 / (dist + 0.5)) * dt * 5.0 * speedMul;
+        velocities[i].x += (dx / dist) * force;
+        velocities[i].y += (dy / dist) * force;
+        velocities[i].z += (dz / dist) * force;
+      }
+    }
+  }
+
+  // On beat, add small outward pulse to make him "dance/vibrate" to the music
+  const hasBeat = isMusicPlaying && bass > 0.45;
+  const pulseForce = hasBeat ? bass * 1.2 * sens * dt * 4.0 * speedMul : 0;
+
+  for (let i = 0; i < PARTICLE_BUDGET; i++) {
+    const i3 = i * 3;
+    
+    if (hasBeat) {
+      // Repel from center (0, 0, 0)
+      const dx = pos[i3];
+      const dy = pos[i3 + 1];
+      const dz = pos[i3 + 2];
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.1;
+      velocities[i].x += (dx / dist) * pulseForce;
+      velocities[i].y += (dy / dist) * pulseForce;
+      velocities[i].z += (dz / dist) * pulseForce;
+    }
+
+    const cat = rickCategories[i];
+
+    // Use the pre-computed pose for this frame
+    const t = getRickDanceTarget(framePose, cat, i, intensity);
+
+    // Mild beat scale (body pulses outward slightly on each kick)
+    const targetX = t.x * beatScale;
+    const targetY = t.y * beatScale;
+    const targetZ = t.z * beatScale;
+
+    const dx = targetX - pos[i3];
+    const dy = targetY - pos[i3 + 1];
+    const dz = targetZ - pos[i3 + 2];
+
+    velocities[i].x += dx * dt * 2.5;
+    velocities[i].y += dy * dt * 2.5;
+    velocities[i].z += dz * dt * 2.5;
+
+    // Apply damping
+    velocities[i].x *= 0.88;
+    velocities[i].y *= 0.88;
+    velocities[i].z *= 0.88;
+
+    // Apply velocity to update positions
+    pos[i3] += velocities[i].x * dt * 8;
+    pos[i3 + 1] += velocities[i].y * dt * 8;
+    pos[i3 + 2] += velocities[i].z * dt * 8;
+
+    // Color reaction: keep standard Rick colors stable, but apply a subtle brightness lift on beats
+    const lift = 1.0 + bass * 0.22 * sens;
+    col[i3] = Math.min(1.0, rickColors[i].r * lift);
+    col[i3 + 1] = Math.min(1.0, rickColors[i].g * lift);
+    col[i3 + 2] = Math.min(1.0, rickColors[i].b * lift);
   }
   posAttr.needsUpdate = true;
   colAttr.needsUpdate = true;
@@ -523,14 +1166,12 @@ function resetPositions() {
     const hue = Math.random();
     const sat = 0.8 + Math.random() * 0.2;
     const lum = 0.6 + Math.random() * 0.4;
-    const c = new THREE.Color().setHSL(hue, sat, lum);
-    col[i3] = c.r;
-    col[i3 + 1] = c.g;
-    col[i3 + 2] = c.b;
+    hslToRgb(hue, sat, lum, col, i3);
   }
   posAttr.needsUpdate = true;
   colAttr.needsUpdate = true;
-  clickBurstTime = 0;
+  explosions = [];
+  beatCooldown = 0;
 }
 
 // ── Mode switching ──
@@ -552,30 +1193,44 @@ function applySizeUpdate() {
   } else {
     const sizeArr = sizeAttr.array;
     for (let i = 0; i < PARTICLE_BUDGET; i++) {
-      const baseSize = 0.16 + (i % 100) * 0.0025;
+      let baseSize = 0.16 + (i % 100) * 0.0025;
+      if (currentMode === 'rickroll') {
+        const cat = rickCategories[i];
+        if (cat === 'left_arm' || cat === 'right_arm') {
+          baseSize *= 2.0; // make arm particles 2.0x larger for extra sleeve thickness
+        }
+      }
       sizeArr[i] = baseSize * SETTINGS.size;
     }
     sizeAttr.needsUpdate = true;
   }
 }
 
-// ── Apply music reactivity to size and color in animation loop ──
+// ── Apply music reactivity to particle size in animation loop ──
+// The music-react slider (sens) only controls the SIZE PULSE depth:
+//   sens=0  → no pulse at all, particles stay at exactly SETTINGS.size
+//   sens=1  → bass hits push size up by 35% max
+// This is intentionally capped so it does not look like a brightness change.
 function applyMusicReactivity() {
   if (!isMusicPlaying || !analyser) return;
-  const sens = SETTINGS.musicSensitivity;
-  if (sens <= 0) return;
 
-  // Get frequency data
   analyser.getByteFrequencyData(audioData);
 
-  // Bass: indices 0-3 control size pulse (capped, not turning white)
+  const sens = SETTINGS.musicSensitivity;
   const bassAvg = (audioData[0] + audioData[1] + audioData[2] + audioData[3]) / (255 * 4);
-  const bassScaled = bassAvg * sens;
-  const sizeMul = (0.6 + bassScaled * 1.4) * SETTINGS.size;
+  // Max pulse is +35% of base size at sens=1 and full bass — subtle, not blinding
+  const pulse = bassAvg * sens * 0.35;
+  const sizeMul = (1.0 + pulse) * SETTINGS.size;
 
   const sizeArr = sizeAttr.array;
   for (let i = 0; i < PARTICLE_BUDGET; i++) {
-    const baseSize = 0.16 + (i % 100) * 0.0025;
+    let baseSize = 0.16 + (i % 100) * 0.0025;
+    if (currentMode === 'rickroll') {
+      const cat = rickCategories[i];
+      if (cat === 'left_arm' || cat === 'right_arm') {
+        baseSize *= 2.0; // make arm particles 2.0x larger for extra sleeve thickness
+      }
+    }
     sizeArr[i] = baseSize * sizeMul;
   }
   sizeAttr.needsUpdate = true;
@@ -593,6 +1248,13 @@ function animate(time) {
   lastTime = time;
   const dt = Math.min(dtRaw, 0.05);
 
+  // Calculate unprojected mouse3D on the Z=0 plane
+  const vector = new THREE.Vector3(mouse.x, mouse.y, 0.5);
+  vector.unproject(camera);
+  const dir = vector.sub(camera.position).normalize();
+  const distance = -camera.position.z / dir.z;
+  mouse3D.copy(camera.position).add(dir.multiplyScalar(distance));
+
   // FPS
   frameCount++;
   if (time - fpsTime >= 1000) {
@@ -605,14 +1267,20 @@ function animate(time) {
     // Apply size multiplier (with music reactivity if playing)
     applySizeUpdate();
 
-    // Smooth audio data for glitch-free mode reactivity
+    // Smooth audio data with an attack-release envelope follower
     if (isMusicPlaying && analyser) {
-      const SMOOTH = 0.35;
       for (let i = 0; i < 128; i++) {
-        smoothedAudio[i] = smoothedAudio[i] * SMOOTH + (audioData[i] / 255) * (1 - SMOOTH);
+        const val = audioData[i] / 255;
+        if (val > smoothedAudio[i]) {
+          smoothedAudio[i] = smoothedAudio[i] * 0.25 + val * 0.75;
+        } else {
+          smoothedAudio[i] = smoothedAudio[i] * 0.88 + val * 0.12;
+        }
       }
     } else {
-      smoothedAudio.fill(0);
+      for (let i = 0; i < 128; i++) {
+        smoothedAudio[i] *= 0.85;
+      }
     }
 
     modeTime += dt;
@@ -622,6 +1290,7 @@ function animate(time) {
       case 'explosion': updateExplosion(dt); break;
       case 'aurora': updateAurora(dt); break;
       case 'nebula': updateNebula(dt); break;
+      case 'rickroll': updateRickroll(dt); break;
     }
   }
 
@@ -630,7 +1299,27 @@ function animate(time) {
 
 animate(performance.now());
 
-// ── Mouse ──
+// ── Mouse & Touch Event Handlers ──
+function triggerExplosion(clientX, clientY, isSmall = false) {
+  const ndcX = (clientX / window.innerWidth) * 2 - 1;
+  const ndcY = -(clientY / window.innerHeight) * 2 + 1;
+  
+  const vector = new THREE.Vector3(ndcX, ndcY, 0.5);
+  vector.unproject(camera);
+  const dir = vector.sub(camera.position).normalize();
+  const distance = -camera.position.z / dir.z;
+  const targetPos = camera.position.clone().add(dir.multiplyScalar(distance));
+  
+  explosions.push({
+    center: targetPos,
+    radius: 0,
+    maxRadius: isSmall ? 6.0 : 28,
+    strength: isSmall ? 15 : 45,
+    age: 0,
+    duration: isSmall ? 0.45 : 0.9
+  });
+}
+
 function onMouseMove(e) {
   mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -638,10 +1327,12 @@ function onMouseMove(e) {
 
 function onMouseDown(e) {
   mouseDown = true;
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
   if (currentMode === 'explosion') {
-    clickBurstTime = 1.5;
-    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    triggerExplosion(e.clientX, e.clientY, false);
+  } else if (currentMode === 'gravity') {
+    triggerExplosion(e.clientX, e.clientY, true);
   }
 }
 
@@ -660,14 +1351,22 @@ window.addEventListener('touchmove', e => {
   mouse.x = (t.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(t.clientY / window.innerHeight) * 2 + 1;
 }, { passive: false });
+
 window.addEventListener('touchstart', e => {
   const t = e.touches[0];
   mouse.x = (t.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(t.clientY / window.innerHeight) * 2 + 1;
   mouseDown = true;
-  if (currentMode === 'explosion') clickBurstTime = 1.5;
+  if (currentMode === 'explosion') {
+    triggerExplosion(t.clientX, t.clientY, false);
+  } else if (currentMode === 'gravity') {
+    triggerExplosion(t.clientX, t.clientY, true);
+  }
 }, { passive: true });
-window.addEventListener('touchend', () => { mouseDown = false; }, { passive: true });
+
+window.addEventListener('touchend', () => {
+  mouseDown = false;
+}, { passive: true });
 
 // ── Resize ──
 window.addEventListener('resize', () => {
@@ -678,7 +1377,7 @@ window.addEventListener('resize', () => {
 
 // ── Keyboard ──
 window.addEventListener('keydown', e => {
-  if (e.key >= '1' && e.key <= '5') {
+  if (e.key >= '1' && e.key <= '6') {
     const idx = parseInt(e.key) - 1;
     setMode(MODES[idx]);
   }
@@ -812,12 +1511,22 @@ document.getElementById('sBright').addEventListener('input', function() {
   document.getElementById('valBright').textContent = parseInt(this.value) + '%';
 });
 
+document.getElementById('sCount').addEventListener('input', function() {
+  const v = parseInt(this.value);
+  PARTICLE_BUDGET = v;
+  geometry.setDrawRange(0, PARTICLE_BUDGET);
+  document.getElementById('valCount').textContent = v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v;
+  applySizeUpdate();
+});
+
 // ── Reset to defaults ──
 function resetDefaults() {
   SETTINGS.speed = 1.0;
   SETTINGS.size = 1.0;
   SETTINGS.vibrancy = 1.0;
   SETTINGS.musicSensitivity = 0.7;
+  PARTICLE_BUDGET = 12000;
+  geometry.setDrawRange(0, PARTICLE_BUDGET);
 
   document.getElementById('sSpeed').value = '1.0';
   document.getElementById('valSpeed').textContent = '1.0×';
@@ -827,6 +1536,8 @@ function resetDefaults() {
   document.getElementById('valBright').textContent = '100%';
   document.getElementById('sSens').value = '70';
   document.getElementById('valSens').textContent = '70%';
+  document.getElementById('sCount').value = '12000';
+  document.getElementById('valCount').textContent = '12k';
 
   material.uniforms.uIntensity.value = 1.0;
   setMode('vortex');

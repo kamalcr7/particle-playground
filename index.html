@@ -394,7 +394,7 @@ function initRickAstleyData() {
         z = (Math.random() - 0.5) * 0.5;
         rickCategories.push('right_hand');
       }
-      const c = new THREE.Color().setHSL(0.05, 0.6, 0.68 + Math.random() * 0.08);
+      const c = new THREE.Color().setHSL(0.60, 0.30, 0.08 + Math.random() * 0.05);
       r = c.r; g = c.g; b = c.b;
     } else {
       // 6. Mic & Stand
@@ -984,13 +984,31 @@ function getRickDanceTarget(pose, cat, i, intens) {
   let tz = rickPositions[i].z;
   const s = intens;
 
+  const sens = SETTINGS.musicSensitivity;
+  const bass = smoothedAudio[0];
+  const tClock = rickTime * 1.5;
+
+  // 1. Vertical bounce: all body parts bob up/down to the music beat
+  const bobY = -0.55 * Math.abs(Math.sin(tClock * 2.0)) * (1.0 + bass * 0.9 * sens) * s;
+  
+  // 2. Hip sway: side-to-side translation
+  const hipSwayX = Math.sin(tClock) * 0.65 * (1.0 + bass * 0.7 * sens) * s;
+  
+  // 3. Head sway (leads sways slightly out-of-phase for natural look)
+  const headSwayX = Math.sin(tClock + 0.4) * 0.75 * (1.0 + bass * 0.7 * sens) * s;
+  const headSwayY = Math.cos(tClock * 2.0) * 0.25 * (1.0 + bass * 0.5 * sens) * s;
+  
+  // 4. Arms shimmy / wave (add a secondary wave to arms/hands)
+  const armWaveX = Math.sin(tClock * 1.5) * 0.45 * (1.0 + bass * 0.5 * sens) * s;
+  const armWaveY = Math.cos(tClock * 1.5) * 0.35 * (1.0 + bass * 0.5 * sens) * s;
+
   if (cat === 'hair' || cat === 'face') {
-    tx += pose.headX * s;
-    ty += pose.headY * s;
+    tx += pose.headX * s + headSwayX;
+    ty += pose.headY * s + headSwayY + bobY;
     tx += pose.torsoLean * 1.5 * s;
   } else if (cat === 'torso') {
-    tx += pose.torsoX * s;
-    ty += pose.torsoY * s;
+    tx += pose.torsoX * s + hipSwayX;
+    ty += pose.torsoY * s + bobY;
     // Lean: upper torso leans more than lower
     const baseY = rickPositions[i].y / 1.35; // undo the 1.35 scale for range calc
     const torsoFrac = Math.max(0, Math.min(1, (baseY + 3.5) / 5.5));
@@ -1001,36 +1019,37 @@ function getRickDanceTarget(pose, cat, i, intens) {
     const baseY = rickPositions[i].y / 1.35;
     // legFrac=0 at feet (y=-10), legFrac=1 at hip (y=-3.5)
     const legFrac = Math.max(0, Math.min(1, (baseY + 10.0) / 6.5));
+    const kneeBend = Math.sin(tClock * 2.0) * 0.4 * (1.0 - legFrac) * legFrac * s;
     if (isLeft) {
-      tx += rickLerp(pose.legLX, pose.torsoX, legFrac) * s;
-      ty += rickLerp(pose.legLY, pose.torsoY, legFrac) * s;
+      tx += rickLerp(pose.legLX, pose.torsoX, legFrac) * s + hipSwayX * legFrac + kneeBend;
+      ty += rickLerp(pose.legLY, pose.torsoY, legFrac) * s + bobY * legFrac;
     } else {
-      tx += rickLerp(pose.legRX, pose.torsoX, legFrac) * s;
-      ty += rickLerp(pose.legRY, pose.torsoY, legFrac) * s;
+      tx += rickLerp(pose.legRX, pose.torsoX, legFrac) * s + hipSwayX * legFrac - kneeBend;
+      ty += rickLerp(pose.legRY, pose.torsoY, legFrac) * s + bobY * legFrac;
     }
   } else if (cat === 'left_arm') {
     // Arm follows shoulder (torso) at base and hand at tip
     const baseX = rickPositions[i].x / 1.35; // un-scale
     // armT: 0=shoulder (x=-0.8), 1=hand (x=-1.8)
     const armT = Math.max(0, Math.min(1, (-baseX - 0.8) / 1.0));
-    tx += rickLerp(pose.torsoX, pose.lhX, armT) * s;
-    ty += rickLerp(pose.torsoY, pose.lhY, armT) * s;
+    tx += rickLerp(pose.torsoX, pose.lhX, armT) * s + hipSwayX * (1 - armT) + armWaveX * armT;
+    ty += rickLerp(pose.torsoY, pose.lhY, armT) * s + bobY + armWaveY * armT;
   } else if (cat === 'right_arm') {
     const baseX = rickPositions[i].x / 1.35;
     // armT: 0=shoulder (x=0.8), 1=hand (x=2.0)
     const armT = Math.max(0, Math.min(1, (baseX - 0.8) / 1.2));
-    tx += rickLerp(pose.torsoX, pose.rhX, armT) * s;
-    ty += rickLerp(pose.torsoY, pose.rhY, armT) * s;
+    tx += rickLerp(pose.torsoX, pose.rhX, armT) * s + hipSwayX * (1 - armT) + armWaveX * armT;
+    ty += rickLerp(pose.torsoY, pose.rhY, armT) * s + bobY + armWaveY * armT;
   } else if (cat === 'left_hand') {
-    tx += pose.lhX * s;
-    ty += pose.lhY * s;
+    tx += pose.lhX * s + armWaveX;
+    ty += pose.lhY * s + bobY + armWaveY;
   } else if (cat === 'right_hand') {
-    tx += pose.rhX * s;
-    ty += pose.rhY * s;
+    tx += pose.rhX * s + armWaveX;
+    ty += pose.rhY * s + bobY + armWaveY;
   } else if (cat === 'mic') {
     const micFrac = Math.max(0, Math.min(1, (rickPositions[i].y / 1.35 + 10.0) / 14.0));
-    tx += pose.lhX * micFrac * s * 0.7;
-    ty += pose.torsoY * micFrac * s * 0.3;
+    tx += pose.lhX * micFrac * s * 0.7 + armWaveX * micFrac;
+    ty += pose.torsoY * micFrac * s * 0.3 + bobY * micFrac;
   }
   return { x: tx, y: ty, z: tz };
 }

@@ -1,79 +1,87 @@
 # 🎆 Particle Playground
 
-Interactive 3D particle playground with 5 visual modes and music-reactive particles. Built with Three.js and the Web Audio API.
+Interactive 3D particle playground with 6 visual modes, music-reactive particles, and physics-based interactions. Built with Three.js, custom GLSL shaders, and the Web Audio API.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
 ## ✨ Features
 
-- **5 Visual Modes** — Vortex, Gravity, Explosion, Aurora, Nebula
-- **Music Reactive** — Particles pulse and dance to "Never Gonna Give You Up" via Web Audio API
-- **Real-time Settings** — Adjust speed, particle size, brightness, and music reactivity on the fly
-- **Keyboard Controls** — Switch modes, pause/unpause with keyboard shortcuts
-- **Reset Button** — One-click reset to default settings
-- **Three.js Powered** — Hardware-accelerated 3D particle rendering with custom GLSL shaders
-- **Zero Dependencies** — No build step, no server needed
-- **Responsive** — Works on desktop and mobile browsers
+- **6 Visual Modes** — Vortex, Gravity, Explosion, Aurora, Nebula, and the legendary Rick Astley Dance Mode.
+- **Music Reactive** — Particles pulse, dance, speed up, and vibrate in real-time to "Never Gonna Give You Up" via the Web Audio API.
+- **Interactive Physics** — Precise mouse/touch 3D tracking:
+  - **Gravity / Nebula**: Pulls particles into a gravitational singularity/black hole on click/touch.
+  - **Explosion / Rickroll**: Disperses particles dynamically with shockwaves on click/touch or strong bass beats.
+  - **Aurora**: Warps and swirls ribbons magnetically around the cursor.
+- **Real-time Settings Sidebar** — Adjust speed, particle size, brightness, particle count, and music reactivity sensitivity on the fly.
+- **Zero Garbage Collection (GC) Overhead** — Highly optimized rendering utilizing in-place color algorithms. Prevents browser frame drops and micro-stutters.
+- **Responsive Design** — Elegant, responsive glassmorphism HUD that adapts seamlessly to desktop and mobile displays.
+- **Zero Dependencies** — Runs directly in any modern browser without compilers, bundlers, or servers.
+
+---
 
 ## 🎯 Modes
 
 | Mode | Description |
 |------|-------------|
-| **Vortex** | Particles swirl in a dynamic spiral vortex |
-| **Gravity** | Particles orbit a central gravitational point |
-| **Explosion** | Particles burst outward with bass-triggered impulses |
-| **Aurora** | Particles flow like aurora borealis ribbons |
-| **Nebula** | Particles form colorful nebula-like clouds |
+| **Vortex** | Particles swirl in a dynamic, high-velocity spiral vortex. |
+| **Gravity** | Particles orbit a central gravity point, reacting with explosive shockwaves on mouse-clicks and audio beats. |
+| **Explosion** | A high-definition contained sphere where particles expand in crisp shockwave rings and snap back quickly. |
+| **Aurora** | Fluid, smooth aurora borealis ribbons that swirl magnetically around your cursor. |
+| **Nebula** | A beautiful dual-arm spiral galaxy featuring differential rotation, a black-hole gravity core, and a wide HSL rainbow spectrum. |
+| **Rick Astley** | A custom, slimmed-down 3D particle silhouette of Rick Astley that performs 4 continuous choreographed dance routines (Classic Sway, Shoulder Shimmy, Arm Wave, Foot Shuffle) with smooth cross-fading, complete with a mic stand and skin-toned hands. |
+
+---
 
 ## 🎮 Controls
 
-### Keyboard
+### Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `1`-`5` | Switch visual mode |
-| `Space` | Pause/resume particles |
-| Mouse | Move cursor to interact with particles |
+| `1` – `6` | Switch visual modes (6 = Rick Astley Mode) |
+| `Space` | Pause / resume particles |
+| Mouse / Touch | Move cursor to interact (warp, drag, or explode particles) |
 
 ### Settings Panel (left sidebar)
 
-| Slider | Range | Default | Description |
-|--------|-------|---------|-------------|
-| **Speed** | 0.5× – 3.0× | 1.0× | Overall animation speed |
-| **Size** | 0.2× – 3.0× | 1.0× | Particle size multiplier |
-| **Brightness** | 0% – 100% | 100% | Particle glow intensity |
-| **Music React** | 0% – 100% | 70% | How strongly music affects particle behavior |
+| Control | Range | Default | Description |
+|---------|-------|---------|-------------|
+| **Speed** | 0.5× – 3.0× | 1.0× | Overall animation speed multiplier |
+| **Size** | 0.2× – 3.0× | 1.0× | Base particle sizing |
+| **Brightness** | 0% – 100% | 100% | Particle glow intensity (adjusts custom GLSL shader values) |
+| **Music React** | 0% – 100% | 70% | Depth of audio-reactive size pulses |
+| **Particle Count** | 100 – 16,000 | 12,000 | Total active rendering budget (dynamic buffer updates) |
 
-### Bottom Bar
-
-| Button | Description |
-|--------|-------------|
-| **Vortex / Gravity / Explosion / Aurora / Nebula** | Switch visual mode |
-| **⏸ Pause / ▶ Play** | Pause or resume particle animation |
-| **🎵 Play Music / 🎵 Stop** | Toggle "Never Gonna Give You Up" |
-| **↻ Reset** | Restore all settings to defaults |
+---
 
 ## 🚀 Quick Start
 
-This is a static site — no build step required!
+Since this is a static project, no build steps are required! 
 
 ```bash
-# Clone the repo
+# Clone the repository
 git clone https://github.com/kamalcr7/particle-playground.git
 
-# Open in browser
+# Navigate to the folder
 cd particle-playground
-# Just open index.html in your browser, or serve with any static server:
-python3 -m http.server 8080
-```
 
-Place an MP3 file at `assets/music/` and update `MUSIC_URL` in `index.html` to point to your song, or use the included bundled track.
+# Run a static server to bypass browser CORS limitations for audio loading:
+# Using Python:
+python -m http.server 8080
+
+# Or using Node.js:
+npx http-server -p 8080
+```
+Open `http://localhost:8080` in your web browser.
+
+---
 
 ## 🛠️ Tech Stack
 
-- **Three.js** — 3D particle rendering via CDN (ESM modules) with custom GLSL shaders
-- **Web Audio API** — `AnalyserNode` for real-time frequency analysis driving particle reactivity
-- **Vanilla JavaScript** — No framework or build tools
+- **Three.js** — GPU-accelerated particle system loaded via ESM modules.
+- **Web Audio API** — Real-time `AnalyserNode` with an attack-release envelope follower for smooth music reactivity.
+- **Custom GLSL Shaders** — Custom vertex and fragment shaders for high-performance size attenuation, color blends, and crisp brightness scaling.
+- **Vanilla JS & CSS** — Glassmorphic styling and interactive settings panel.
 
 ## 📄 License
 
